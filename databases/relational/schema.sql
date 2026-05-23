@@ -314,6 +314,8 @@ CREATE TABLE bookings (
     travelled_at            TIMESTAMPTZ,
     FOREIGN KEY (layout_id, coach, seat_id) REFERENCES seats(layout_id, coach, seat_id),
     UNIQUE (schedule_id, travel_date, departure_time, coach, seat_id)
+    CHECK (origin_station_id <> destination_station_id),
+    CHECK (travelled_at IS NULL OR travelled_at::date >= travel_date)
 );
 
 -- =============================================================
@@ -330,6 +332,8 @@ CREATE TABLE metro_trips (
     stops_travelled         INTEGER      CHECK (stops_travelled IS NULL OR stops_travelled > 0),
     purchased_at            TIMESTAMPTZ  NOT NULL,
     travelled_at            TIMESTAMPTZ
+    CHECK (origin_station_id <> destination_station_id),
+    CHECK (travelled_at IS NULL OR travelled_at::date >= travel_date)
 );
 
 -- =============================================================
@@ -409,6 +413,8 @@ CREATE INDEX idx_bookings_origin_dest       ON bookings(origin_station_id, desti
 CREATE INDEX idx_metro_trips_schedule_date  ON metro_trips(schedule_id, travel_date);
 CREATE INDEX idx_metro_trips_origin_dest    ON metro_trips(origin_station_id, destination_station_id, travel_date);
 CREATE INDEX idx_payments_journey           ON payments(journey_id);
+CREATE INDEX idx_nr_stops_station  ON national_rail_schedule_stops(station_id);
+CREATE INDEX idx_metro_stops_station ON metro_schedule_stops(station_id);
 CREATE INDEX idx_feedback_journey           ON feedback(journey_id);
 CREATE INDEX idx_feedback_user              ON feedback(user_id);
 CREATE INDEX idx_metro_trips_day_pass       ON metro_trips(day_pass_ref) WHERE day_pass_ref IS NOT NULL;
@@ -416,7 +422,6 @@ CREATE UNIQUE INDEX idx_payments_one_paid_per_journey
     ON payments(journey_id)
     WHERE status = 'paid';
 
-COMMIT;
 
 
 
@@ -440,4 +445,5 @@ CREATE TABLE IF NOT EXISTS policy_documents (
 );
 
 -- Index for fast cosine similarity search
-CREATE INDEX IF NOT EXISTS ON policy_documents USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_policy_embedding ON policy_documents USING hnsw (embedding vector_cosine_ops);
+COMMIT;
