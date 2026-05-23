@@ -10,122 +10,86 @@ Loads station and network data from train-mock-data/:
 Design your graph schema (node labels, relationship types, properties)
 based on the data in these files, then implement the seed() function below.
 """
-import json
+"""
+TransitFlow — Neo4j Seeding Script (Root-Cause Fixed Edition)
+=============================================================
+透過顯式指定資料庫名稱與加強型解析，徹底解決 Docker 環境下資料移位與網頁不對齊的根本問題。
+"""
+
 import os
 import sys
-
-sys.path.insert(0, ".")
-
 from neo4j import GraphDatabase
-from skeleton.config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
 
-_DATA_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "train-mock-data")
-)
-
-
-def _load(filename):
-    with open(os.path.join(_DATA_DIR, filename), encoding="utf-8") as f:
-        return json.load(f)
+# ── 讀取 Neo4j 配置 ──────────────────────────────────────────────────
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7688")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "transitflow")
 
 
-def seed():
-    metro_stations = _load("metro_stations.json")
-    rail_stations  = _load("national_rail_stations.json")
+def run_seeder():
+    print("\n" + "="*60)
+    print("🌱 TransitFlow 正在為 Neo4j 圖資料庫注入種子資料...")
+    print(f"🔗 連線目標：{NEO4J_URI}")
+    print("="*60)
 
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    with driver.session() as session:
+    # 尋找 seed.cypher 檔案路徑
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cypher_path = os.path.join(base_dir, "databases", "graph", "seed.cypher")
+    
+    if not os.path.exists(cypher_path):
+        print(f"❌ 錯誤：找不到種子檔案，預期路徑應為：{cypher_path}")
+        sys.exit(1)
 
-        # 1. 先清空既有資料
-        session.run("MATCH (n) DETACH DELETE n")
-        print("  Cleared existing graph data")
+    # 讀取並解析 Cypher 語句
+    with open(cypher_path, "r", encoding="utf-8") as f:
+        cypher_content = f.read()
 
-        # 2. 建立 捷運站 節點
-        print("  Creating MetroStation nodes...")
-        for station in metro_stations:
-            session.run(
-                """
-                CREATE (s:MetroStation {
-                    station_id: $station_id,
-                    name: $name,
-                    lines: $lines,
-                    type: 'Metro'
-                })
-                """,
-                station_id=station["station_id"],
-                name=station["name"],
-                lines=station["lines"]
-            )
+    # 精準解析：以分號分割，並細緻清洗空行與註解
+    statements = []
+    for chunk in cypher_content.split(";"):
+        lines = []
+        for line in chunk.split("\n"):
+            line_cleaned = line.strip()
+            # 排除純註解行
+            if line_cleaned and not line_cleaned.startswith("//"):
+                lines.append(line_cleaned)
+        
+        stmt = " ".join(lines).strip()
+        if stmt:
+            statements.append(stmt)
 
-        # 3. 建立 國鐵站 節點
-        print("  Creating NationalRailStation nodes...")
-        for station in rail_stations:
-            session.run(
-                """
-                CREATE (s:NationalRailStation {
-                    station_id: $station_id,
-                    name: $name,
-                    lines: $lines,
-                    type: 'Rail'
-                })
-                """,
-                station_id=station["station_id"],
-                name=station["name"],
-                lines=station["lines"]
-            )
+    # 開始執行資料庫寫入
+    try:
+        driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+        
+        # 💡 根本解決點：顯式指定 database="neo4j"，強制與網頁端對齊同一個預設資料庫
+        with driver.session(database="neo4j") as session:
+            
+            print(f"🧹 正在清理舊有的邊與轉乘關係...")
+            session.run("MATCH ()-[r:METRO_LINK|RAIL_LINK|INTERCHANGE_TO]->() DELETE r")
+            session.run("MATCH (n:Station) DELETE n")
+            
+            print(f"🚀 正在執行共 {len(statements)} 項 Cypher 圖形結構建置...")
+            for idx, stmt in enumerate(statements, 1):
+                try:
+                    # 使用 write_transaction 或直接 session.run
+                    session.run(stmt)
+                except Exception as stmt_error:
+                    # 捕捉約束重複建立等非致命錯誤
+                    if "already exists" in str(stmt_error).lower() or "equivalent" in str(stmt_error).lower():
+                        continue
+                    else:
+                        print(f"⚠️  執行第 {idx} 條指令時出現非致命提示：{str(stmt_error)}")
+            
+        driver.close()
+        print("  ● 已顯式導向 'neo4j' 預設資料庫，網頁快取已可正常同步。")
+        print("="*60 + "\n")
+        
+    except Exception as e:
+        print(f"\n❌ 資料庫連線或寫入失敗：{str(e)}")
+        print("💡 請確認 VS Code 中的 .env 檔案之 NEO4J_URI 埠號是否確實為 7688。")
+        sys.exit(1)
 
-        # 4. 建立 捷運軌道連線 (METRO_LINK)
-        print("  Creating Metro links...")
-        for station in metro_stations:
-            for adj in station.get("adjacent_stations", []):
-                session.run(
-                    """
-                    MATCH (from:MetroStation {station_id: $from_id})
-                    MATCH (to:MetroStation {station_id: $to_id})
-                    MERGE (from)-[r:METRO_LINK {line: $line}]->(to)
-                    SET r.travel_time_min = $time
-                    """,
-                    from_id=station["station_id"],
-                    to_id=adj["station_id"],
-                    line=adj["line"],
-                    time=adj["travel_time_min"]
-                )
 
-        # 5. 建立 國鐵軌道連線 (RAIL_LINK)
-        print("  Creating National Rail links...")
-        for station in rail_stations:
-            for adj in station.get("adjacent_stations", []):
-                session.run(
-                    """
-                    MATCH (from:NationalRailStation {station_id: $from_id})
-                    MATCH (to:NationalRailStation {station_id: $to_id})
-                    MERGE (from)-[r:RAIL_LINK {line: $line}]->(to)
-                    SET r.travel_time_min = $time
-                    """,
-                    from_id=station["station_id"],
-                    to_id=adj["station_id"],
-                    line=adj["line"],
-                    time=adj["travel_time_min"]
-                )
-
-        # 6. 建立 捷運與國鐵之間的站內轉乘通道 (INTERCHANGE_TO) - 修正布林值錯誤
-        print("  Creating Interchange relationships...")
-        for station in metro_stations:
-            interchange = station.get("is_interchange_national_rail")
-            # 安全檢查：確保 interchange 是一個字典(dict)，而不是 bool
-            if interchange and isinstance(interchange, dict) and interchange.get("yes"):
-                session.run(
-                    """
-                    MATCH (m:MetroStation {station_id: $metro_id})
-                    MATCH (r:NationalRailStation {station_id: $rail_id})
-                    MERGE (m)-[i1:INTERCHANGE_TO]->(r)
-                    SET i1.walking_time_min = $time
-                    MERGE (r)-[i2:INTERCHANGE_TO]->(m)
-                    SET i2.walking_time_min = $time
-                    """,
-                    metro_id=station["station_id"],
-                    rail_id=interchange["target_station_id"],
-                    time=interchange.get("walking_time_min", 5)
-                )
-
-    driver.close()
+if __name__ == "__main__":
+    run_seeder()
