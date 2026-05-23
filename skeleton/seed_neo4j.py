@@ -1,11 +1,10 @@
 """
-TransitFlow — Neo4j Seeding Script
+TransitFlow — Neo4j Seeding Script (Fixed Path Edition)
 =============================================================
 功能：
-1. 自動讀取 databases/data/metro_stations.json
+1. 自動讀取專案根目錄下的 train-mock-data/metro_stations.json
 2. 建立車站節點與轉乘關係
-3. 增加健壯性檢查 (路徑、連線處理)
-4. 與 schema.sql 的 station_id 完美對齊
+3. 確保 is_nr_interchange 等屬性正確寫入
 """
 
 import json
@@ -14,17 +13,19 @@ import sys
 from neo4j import GraphDatabase
 
 def seed_from_json():
-    json_path = "databases/data/metro_stations.json"
+    # 修正後的路徑：直接指向根目錄下的 train-mock-data
+    json_path = "train-mock-data/metro_stations.json"
     
     # 1. 健壯性檢查：路徑確認
     if not os.path.exists(json_path):
         print(f"❌ 錯誤：找不到檔案 {json_path}")
+        print(f"請確保你在專案根目錄下執行此腳本 (當前路徑: {os.getcwd()})")
         sys.exit(1)
 
     with open(json_path, 'r', encoding='utf-8') as f:
         stations = json.load(f)
 
-    # 連線設定
+    # 連線設定 (使用環境變數或預設值)
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7688")
     user = os.getenv("NEO4J_USER", "neo4j")
     pwd = os.getenv("NEO4J_PASSWORD", "transitflow")
