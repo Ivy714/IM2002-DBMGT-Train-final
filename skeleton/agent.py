@@ -1,7 +1,7 @@
 """
 TransitFlow — Intelligent Agent
 ================================
-此版本已調整以配合 TransitQueryManager 類別架構與精確的介面顯示格式。
+支援時間與價格導航查詢，並包含互動狀態顯示。
 """
 
 from __future__ import annotations
@@ -43,23 +43,34 @@ def _inject_station_ids(text: str) -> str:
 
 SYSTEM_PROMPT = "你是一個非常有用的繁體中文交通助理 TransitFlow。回答請保持簡短、精確、流暢。"
 
-def _format_route_result_for_small_llm(data) -> str:
+def _format_route_result_for_small_llm(data, mode="time") -> str:
     if not data or (isinstance(data, dict) and not data.get("found", True)):
         return "經查，目前兩站之間沒有可行路線。"
     try:
-        if isinstance(data, dict) and 'path' in data:
+        lines = ["【🔍 TransitFlow 最佳路線導航】"]
+        if 'path' in data:
             station_names = [f"{s['name']} ({s['station_id']})" for s in data['path']]
-            route_str = " ➔ ".join(station_names)
-            return f"【🔍 TransitFlow 最佳路線導航】\n  ● 乘車路線：{route_str}\n  ● 預估總耗時：{data.get('total_time_min', '未定')} 分鐘"
-        return str(data)
+            lines.append(f"  ● 乘車路線：{' ➔ '.join(station_names)}")
+        
+        if mode == "cost":
+            lines.append(f"  ● 預估總花費：{data.get('total_cost', '未定')} 元")
+        else:
+            lines.append(f"  ● 預估總耗時：{data.get('total_time_min', '未定')} 分鐘")
+            
+        return "\n".join(lines)
     except:
         return "查詢解析失敗。"
 
 def _execute_tool(tool_name: str, params: dict) -> str:
     try:
         if tool_name == "find_route":
-            res = db_manager.query_shortest_route(params["origin_id"], params["destination_id"])
-            return _format_route_result_for_small_llm(res)
+            # 判斷是否為「便宜」查詢
+            mode = "cost" if params.get("optimise_by") == "cost" else "time"
+            if mode == "cost":
+                res = db_manager.query_cheapest_route(params["origin_id"], params["destination_id"])
+            else:
+                res = db_manager.query_shortest_route(params["origin_id"], params["destination_id"])
+            return _format_route_result_for_small_llm(res, mode=mode)
         return "暫時無相關數據。"
     except Exception as e:
         return f"資料庫查詢失敗: {str(e)}"
@@ -69,8 +80,11 @@ def run_agent(user_message: str, history: list[dict]) -> tuple:
     _station_ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented_message, re.IGNORECASE)
     
     if len(_station_ids) >= 2:
-        params = {"origin_id": _station_ids[0].upper(), "destination_id": _station_ids[1].upper()}
+        # 判斷使用者是否想查詢最便宜的
+        optimise = "cost" if any(k in user_message.lower() for k in ["便宜", "最省", "價格", "花費"]) else "time"
+        params = {"origin_id": _station_ids[0].upper(), "destination_id": _station_ids[1].upper(), "optimise_by": optimise}
         db_result = _execute_tool("find_route", params)
+        
         safe_reply = (
             f"您好！我是 TransitFlow。為您查詢從 {_station_ids[0].upper()} 到 {_station_ids[1].upper()} 的導航資訊：\n\n"
             f"{db_result}\n\n"
@@ -83,9 +97,7 @@ def run_agent(user_message: str, history: list[dict]) -> tuple:
 
 if __name__ == "__main__":
     chat_history = []
-    print("\n" + "="*60)
-    print("🤖 TransitFlow 智慧交通")
-    print("============================================================\n")
+    print("\n" + "="*60 + "\n🤖 TransitFlow 智慧交通系統\n" + "="*60)
 
     while True:
         try:
