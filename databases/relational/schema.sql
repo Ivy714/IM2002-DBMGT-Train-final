@@ -203,7 +203,7 @@ CREATE TABLE metro_schedule_stops (
     schedule_id                   VARCHAR(20)  NOT NULL REFERENCES metro_schedules(schedule_id) ON DELETE CASCADE,
     station_id                    VARCHAR(10)  NOT NULL REFERENCES metro_stations(station_id),
     stop_order                    INTEGER      NOT NULL CHECK (stop_order > 0),
-    travel_time_from_origin_min   INTEGER      NOT NULL CHECK (travel_time_from_origin_min >= 0),
+    travel_time_from_origin_min   INTEGER      NOT NULL CHECK (travel_time_from_origin_min >= -1),
     PRIMARY KEY (schedule_id, stop_order),
     UNIQUE (schedule_id, station_id)
 );
@@ -212,7 +212,7 @@ CREATE TABLE national_rail_schedule_stops (
     schedule_id                   VARCHAR(20)  NOT NULL REFERENCES national_rail_schedules(schedule_id) ON DELETE CASCADE,
     station_id                    VARCHAR(10)  NOT NULL REFERENCES national_rail_stations(station_id),
     stop_order                    INTEGER      NOT NULL CHECK (stop_order > 0),
-    travel_time_from_origin_min   INTEGER      NOT NULL CHECK (travel_time_from_origin_min >= 0),
+    travel_time_from_origin_min   INTEGER      NOT NULL CHECK (travel_time_from_origin_min >= -1),
     is_stopping                   BOOLEAN      NOT NULL DEFAULT TRUE,
     PRIMARY KEY (schedule_id, stop_order),
     UNIQUE (schedule_id, station_id)
@@ -313,7 +313,7 @@ CREATE TABLE bookings (
     booked_at               TIMESTAMPTZ     NOT NULL,
     travelled_at            TIMESTAMPTZ,
     FOREIGN KEY (layout_id, coach, seat_id) REFERENCES seats(layout_id, coach, seat_id),
-    UNIQUE (schedule_id, travel_date, departure_time, coach, seat_id)
+    UNIQUE (schedule_id, travel_date, departure_time, coach, seat_id),
     CHECK (origin_station_id <> destination_station_id),
     CHECK (travelled_at IS NULL OR travelled_at::date >= travel_date)
 );
@@ -331,7 +331,7 @@ CREATE TABLE metro_trips (
     day_pass_ref            VARCHAR(20) REFERENCES journeys(journey_id) ON DELETE SET NULL,
     stops_travelled         INTEGER      CHECK (stops_travelled IS NULL OR stops_travelled > 0),
     purchased_at            TIMESTAMPTZ  NOT NULL,
-    travelled_at            TIMESTAMPTZ
+    travelled_at            TIMESTAMPTZ,
     CHECK (origin_station_id <> destination_station_id),
     CHECK (travelled_at IS NULL OR travelled_at::date >= travel_date)
 );
