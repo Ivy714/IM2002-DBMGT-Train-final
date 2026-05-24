@@ -1,29 +1,14 @@
 """
 TransitFlow — Intelligent Agent
 ================================
-此版本已調整以配合 TransitQueryManager 類別架構。
+此版本已調整以配合 TransitQueryManager 類別架構與精確的介面顯示格式。
 """
 
 from __future__ import annotations
 import re
 from typing import Optional
 from skeleton.llm_provider import llm
-
-# 匯入類別並初始化
 from databases.graph.queries import TransitQueryManager
-from databases.relational.queries import (
-    query_national_rail_availability,
-    query_national_rail_fare,
-    query_metro_schedules,
-    query_metro_fare,
-    query_available_seats,
-    auto_select_adjacent_seats,
-    query_user_profile,
-    query_user_bookings,
-    execute_booking,
-    execute_cancellation,
-    query_policy_vector_search,
-)
 
 # 初始化圖資料庫管理器
 db_manager = TransitQueryManager()
@@ -64,39 +49,33 @@ def _format_route_result_for_small_llm(data) -> str:
     try:
         if isinstance(data, dict) and 'path' in data:
             station_names = [f"{s['name']} ({s['station_id']})" for s in data['path']]
-            return f"【🔍 最佳路線】{' ➔ '.join(station_names)}\n【總耗時】{data.get('total_time_min', '未定')} 分鐘"
+            route_str = " ➔ ".join(station_names)
+            return f"【🔍 TransitFlow 最佳路線導航】\n  ● 乘車路線：{route_str}\n  ● 預估總耗時：{data.get('total_time_min', '未定')} 分鐘"
         return str(data)
     except:
         return "查詢解析失敗。"
 
-def _execute_tool(tool_name: str, params: dict, current_user_email: Optional[str] = None) -> str:
+def _execute_tool(tool_name: str, params: dict) -> str:
     try:
         if tool_name == "find_route":
-            origin, dest = params["origin_id"], params["destination_id"]
-            # 呼叫實例化後的 db_manager 方法
-            if params.get("optimise_by") == "cost":
-                res = db_manager.query_cheapest_route(origin, dest)
-            else:
-                res = db_manager.query_shortest_route(origin, dest)
-            return _format_route_result_for_small_llm(res)
-        
-        elif tool_name == "find_alternative_routes":
-            # 注意：若您的 queries.py 尚未實作此方法，請補充至 TransitQueryManager
-            res = db_manager.query_alternative_routes(params["origin_id"], params["destination_id"], params["avoid_station_id"])
+            res = db_manager.query_shortest_route(params["origin_id"], params["destination_id"])
             return _format_route_result_for_small_llm(res)
         return "暫時無相關數據。"
     except Exception as e:
         return f"資料庫查詢失敗: {str(e)}"
 
-def run_agent(user_message: str, history: list[dict], debug: bool = False, current_user_email: Optional[str] = None) -> tuple:
+def run_agent(user_message: str, history: list[dict]) -> tuple:
     _augmented_message = _inject_station_ids(user_message)
     _station_ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented_message, re.IGNORECASE)
     
     if len(_station_ids) >= 2:
-        tool_name = "find_route"
         params = {"origin_id": _station_ids[0].upper(), "destination_id": _station_ids[1].upper()}
-        db_result = _execute_tool(tool_name, params)
-        safe_reply = f"您好！為您查詢導航資訊：\n\n{db_result}"
+        db_result = _execute_tool("find_route", params)
+        safe_reply = (
+            f"您好！我是 TransitFlow。為您查詢從 {_station_ids[0].upper()} 到 {_station_ids[1].upper()} 的導航資訊：\n\n"
+            f"{db_result}\n\n"
+            f"祝您旅途愉快！"
+        )
         return safe_reply, history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": safe_reply}]
 
     final_reply = llm.chat(messages=history + [{"role": "user", "content": _augmented_message}], system_prompt=SYSTEM_PROMPT)
@@ -104,10 +83,17 @@ def run_agent(user_message: str, history: list[dict], debug: bool = False, curre
 
 if __name__ == "__main__":
     chat_history = []
+    print("\n" + "="*60)
+    print("🤖 TransitFlow 智慧交通")
+    print("============================================================\n")
+
     while True:
         try:
             u = input("\nUser > ").strip()
             if u.lower() in ["exit", "quit"]: break
+            
+            print("\n🤖 Agent 正在精準檢索資料庫並生成路線...")
             reply, chat_history = run_agent(u, chat_history)
             print(f"\nAssistant > {reply}")
+            print("-" * 50)
         except KeyboardInterrupt: break
