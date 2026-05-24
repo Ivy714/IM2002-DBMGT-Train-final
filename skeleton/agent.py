@@ -1,15 +1,14 @@
 """
 TransitFlow — Intelligent Agent (Full Business Logic Edition)
 =============================================================
-支援：
+升級功能：
 1. 自動隱藏系統警告
-2. 支援兒童半價邏輯
-3. 支援退款與規則查詢 (RAG 預備介面)
+2. 支援兒童半價邏輯 (含關鍵字彈性比對)
+3. 支援退款與規則查詢分流
 """
 
 import warnings
 import re
-from typing import Optional
 from skeleton.llm_provider import llm
 from databases.graph.queries import TransitQueryManager
 
@@ -37,8 +36,8 @@ def _format_route_result(data, mode="time", passenger_type="adult") -> str:
     if not data or not data.get("found"):
         return "經查，目前兩站之間沒有可行路線。"
     
-    # 邏輯升級：兒童半價計算
-    final_cost = data.get("total_cost", 0)
+    # 邏輯升級：計算票價
+    final_cost = float(data.get("total_cost", 0))
     if passenger_type == "child":
         final_cost = final_cost * 0.5
         note = "（已套用兒童半價優惠）"
@@ -67,8 +66,10 @@ def run_agent(user_message: str, history: list[dict]) -> tuple:
     _ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented, re.IGNORECASE)
     
     if len(_ids) >= 2:
-        optimise = "cost" if any(k in user_message for k in ["便宜", "最省", "價格"]) else "time"
-        passenger = "child" if "兒童" in user_message else "adult"
+        # 彈性判定便宜查詢與乘客類型
+        optimise = "cost" if any(k in user_message for k in ["便宜", "最省", "價格", "多少錢"]) else "time"
+        is_child = any(k in user_message for k in ["兒童", "小孩", "小朋友"])
+        passenger = "child" if is_child else "adult"
         
         res = db_manager.query_cheapest_route(_ids[0].upper(), _ids[1].upper()) if optimise == "cost" \
               else db_manager.query_shortest_route(_ids[0].upper(), _ids[1].upper())
@@ -83,7 +84,7 @@ def run_agent(user_message: str, history: list[dict]) -> tuple:
 
 if __name__ == "__main__":
     chat_history = []
-    print("\n🤖 TransitFlow 系統已啟動")
+    print("\n🤖 TransitFlow 系統已啟動 (完整邏輯版)")
     while True:
         try:
             u = input("\nUser > ").strip()
