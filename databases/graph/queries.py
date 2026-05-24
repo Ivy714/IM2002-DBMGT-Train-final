@@ -5,8 +5,7 @@ Handles all Neo4j Cypher queries for pathfinding.
 True Zero-Warning Edition — Uses dynamic property filtering to entirely bypass schema validation.
 """
 
-from io import StringIO
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 from neo4j import GraphDatabase
 import os
 
@@ -23,13 +22,11 @@ except Exception:
 
 
 def query_shortest_route(origin_id: str, destination_id: str, network: str = "auto") -> Dict[str, Any]:
-    """
-    尋找起訖站之間時間最短的最佳路線（無懈可擊版：利用 keys() 完美躲過所有未定義屬性警告）
-    """
+    """尋找起訖站之間時間最短的最佳路線（保留完整邏輯：含 rel_pattern 動態判斷與屬性防禦）"""
     if not _driver:
         return {"error": "Neo4j database driver is not initialized."}
 
-    # 根據起訖站類型，動態決定允許的關係類型
+    # 動態決定關係類型邏輯（原始功能保留）
     if origin_id.upper().startswith("MS") and destination_id.upper().startswith("MS"):
         rel_pattern = "METRO_LINK*..15"
     elif origin_id.upper().startswith("NR") and destination_id.upper().startswith("NR"):
@@ -37,8 +34,6 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
     else:
         rel_pattern = "METRO_LINK|RAIL_LINK|INTERCHANGE_TO*..15"
 
-    # 💡 終極修正：利用 CASE WHEN 與 keys(r) 來動態存取屬性！
-    # 程式碼完全不出現特定未定義的 key 字串，讓 Neo4j 檢查器無從抓起，徹底回歸清淨！
     cypher_query = f"""
     MATCH p = (start {{station_id: $origin_id}})-[:{rel_pattern}]->(end {{station_id: $destination_id}})
     WITH p, 
@@ -85,9 +80,7 @@ def query_shortest_route(origin_id: str, destination_id: str, network: str = "au
 
 
 def query_cheapest_route(origin_id: str, destination_id: str, network: str = "auto") -> Dict[str, Any]:
-    """
-    尋找花費最便宜的最佳路線（無懈可擊版）
-    """
+    """尋找花費最便宜的最佳路線（保留完整邏輯）"""
     if not _driver:
         return {"error": "Neo4j driver offline."}
         
@@ -98,7 +91,6 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
     else:
         rel_pattern = "METRO_LINK|RAIL_LINK|INTERCHANGE_TO*..15"
 
-    # 同步採用 CASE WHEN keys() 防禦機制
     cypher_query = f"""
     MATCH p = (start {{station_id: $origin_id}})-[:{rel_pattern}]->(end {{station_id: $destination_id}})
     WITH p, 
@@ -128,9 +120,7 @@ def query_cheapest_route(origin_id: str, destination_id: str, network: str = "au
 
 
 def query_alternative_routes(origin_id: str, destination_id: str, avoid_station_id: str, network: str = "auto") -> List[Dict[str, Any]]:
-    """
-    尋找繞過特定封鎖站點的替代路線
-    """
+    """尋找繞過特定封鎖站點的替代路線（保留完整邏輯）"""
     if not _driver: return []
     
     cypher_query = """
@@ -152,15 +142,29 @@ def query_alternative_routes(origin_id: str, destination_id: str, avoid_station_
     except Exception:
         return []
 
+
 def query_interchange_path(origin_id: str, destination_id: str) -> Dict[str, Any]:
-    """
-    專門處理跨網絡（地鐵與鐵路）的轉乘查詢
-    """
+    """專門處理跨網絡（地鐵與鐵路）的轉乘查詢（保留原功能）"""
     return query_shortest_route(origin_id, destination_id)
 
 
 def query_delay_ripple(station_id: str, depth: int = 2) -> List[Dict[str, Any]]:
     """
-    查詢特定車站延誤時，會波及連帶影響的周邊車站
+    查詢特定車站延誤時，會波及連帶影響的周邊車站。
+    優化：實作了變長路徑搜尋（[*1..depth]），並過濾掉延誤點本身。
     """
-    return []
+    if not _driver: return []
+    
+    # 搜尋從該車站出發，深度為 depth 之內的所有相鄰車站
+    cypher_query = f"""
+    MATCH (s {{station_id: $station_id}})-[*1..{depth}]-(affected)
+    WHERE affected.station_id <> $station_id
+    RETURN DISTINCT affected.station_id AS station_id, affected.name AS name
+    """
+    try:
+        with _driver.session() as session:
+            result = session.run(cypher_query, station_id=station_id)
+            # 將結果直接轉為字典清單，提升處理效率
+            return [record.data() for record in result]
+    except Exception:
+        return []
