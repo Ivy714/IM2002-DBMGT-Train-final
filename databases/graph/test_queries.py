@@ -1,28 +1,46 @@
-from queries import query_shortest_route, query_delay_ripple
+import sys
+import os
+import logging
+# 將根目錄加入系統路徑，確保可以找到 databases 模組
+sys.path.append(os.getcwd())
 
-def run_tests():
-    # 1. 測試路徑查詢
-    print("路徑查詢測試：")
-    start_id = "MS01"
-    end_id = "MS05"
-    route = query_shortest_route(start_id, end_id)
-    
-    if route.get("found"):
-        # 從輸入變數直接取值，避免讀取不存在的鍵
-        print(f"系統成功找出從 {start_id} ({route['path'][0]['name']}) 到 {end_id} ({route['path'][-1]['name']}) 的最短路徑。")
-        print(f"計算得到的總耗時為 {route['total_time_min']} 分鐘，數據正確，且路徑節點完整回傳。")
-    else:
-        print(f"路徑查詢失敗：{route.get('error', '未知錯誤')}")
+from databases.graph.queries import TransitQueryManager
 
-    # 2. 測試延誤波及分析
-    print("\n延誤波及分析測試：")
-    ripple = query_delay_ripple("MS01", depth=2)
-    
-    if ripple:
-        print("成功分析了特定站點的延誤擴散影響。")
-        print("系統不僅能識別出受波及的車站名稱，還能透過「連結強度 (connection_strength)」量化影響程度。")
-    else:
-        print("延誤波及分析失敗或無數據。")
+# 設定簡易日誌
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def test_queries():
+    qm = None
+    try:
+        # 1. 初始化 Manager
+        print("正在嘗試連線至 Neo4j...")
+        qm = TransitQueryManager()
+        
+        # 2. 測試：使用已存在的 query_delay_ripple 進行測試
+        # 注意：請確認 MS01 是否存在於您的資料庫中
+        print("測試查詢：測試延誤漣漪效應 (使用 MS01)...")
+        results = qm.query_delay_ripple(station_id="MS01", depth=1)
+        
+        if results is not None:
+            print(f"✅ 成功查詢！共影響 {len(results)} 個站點。")
+            for r in results[:3]:
+                print(f" - 受影響站點: {r.get('name', 'Unknown')} (ID: {r.get('station_id')})")
+        else:
+            print("⚠️ 查詢成功但結果為空。")
+            
+        # 3. 測試：驗證連線是否保持活躍
+        if qm.driver:
+            qm.driver.verify_connectivity()
+            print("✅ 連線驗證成功，驅動程式運作正常。")
+            
+    except Exception as e:
+        print(f"❌ 測試失敗，錯誤訊息: {e}")
+    finally:
+        if qm and qm.driver:
+            qm.close()
+            print("連線已關閉。")
 
 if __name__ == "__main__":
-    run_tests()
+    test_queries()
+    
