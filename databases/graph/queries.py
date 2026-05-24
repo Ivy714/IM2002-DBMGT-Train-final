@@ -1,6 +1,11 @@
 from neo4j import GraphDatabase
-from config import settings
 from typing import Any, Dict, List
+import sys
+import os
+
+# 修正路徑以確保能正確匯入 skeleton 資料夾下的 config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+from skeleton import config as settings
 
 class TransitQueryManager:
     """
