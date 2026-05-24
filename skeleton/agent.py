@@ -83,7 +83,7 @@ def run_agent(user_message: str, history: list[dict]) -> tuple:
 
 if __name__ == "__main__":
     chat_history = []
-    print("\n🤖 TransitFlow 系統已啟動 (忽略系統警告)")
+    print("\n🤖 TransitFlow 系統已啟動")
     while True:
         try:
             u = input("\nUser > ").strip()
