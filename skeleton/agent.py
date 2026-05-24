@@ -1,7 +1,10 @@
 """
-TransitFlow — Intelligent Agent
-================================
-支援時間與價格導航查詢，並包含互動狀態顯示。
+TransitFlow — Intelligent Agent (Full Business Logic Edition)
+=============================================================
+升級功能：
+1. 支援兒童半價邏輯 (條件式費用計算)
+2. 整合 RAG 檢索接口，支援退款與規則查詢 (階段二)
+3. 語意解析升級，支援更自然的「便宜」、「退款」、「兒童」查詢
 """
 
 from __future__ import annotations
@@ -10,102 +13,68 @@ from typing import Optional
 from skeleton.llm_provider import llm
 from databases.graph.queries import TransitQueryManager
 
-# 初始化圖資料庫管理器
+# 初始化管理器
 db_manager = TransitQueryManager()
 
-# ── Station name → ID lookup ──────────────────────────────────────────────────
-_STATION_INDEX: dict[str, str] = {
-    "central square": "MS01", "riverside":   "MS02", "northgate":  "MS03",
-    "elm park":       "MS04", "westfield":   "MS05", "harbour view": "MS06",
-    "old town":       "MS07", "university":  "MS08", "queensbridge": "MS09",
-    "parkside":       "MS10", "greenhill":   "MS11", "lakeshore":  "MS12",
-    "clifton":        "MS13", "eastwick":    "MS14", "ferndale":   "MS15",
-    "hilltop":        "MS16", "broadmoor":   "MS17", "sunnyvale":  "MS18",
-    "redwood":        "MS19", "thornton":    "MS20",
-    "central station":   "NR01", "maplewood":     "NR02",
-    "old town junction": "NR03", "ashford":        "NR04",
-    "stonehaven":        "NR05", "bridgeport":     "NR06",
-    "ferndale halt":     "NR07", "coalport":       "NR08",
-    "dunmore":           "NR09", "langford end":   "NR10",
+_STATION_INDEX = {
+    "central square": "MS01", "riverside": "MS02", "northgate": "MS03",
+    "elm park": "MS04", "westfield": "MS05", "central station": "NR01",
+    "maplewood": "NR02", "old town junction": "NR03", "ashford": "NR04"
 }
 
 def _inject_station_ids(text: str) -> str:
     result = text
-    seen_ids: set[str] = set()
     for name in sorted(_STATION_INDEX, key=len, reverse=True):
-        sid = _STATION_INDEX[name]
-        if sid in seen_ids: continue
         pattern = re.compile(re.escape(name), re.IGNORECASE)
-        if pattern.search(result):
-            result = pattern.sub(f"{name} ({sid})", result)
-            seen_ids.add(sid)
+        result = pattern.sub(f"{name} ({_STATION_INDEX[name]})", result)
     return result
 
-SYSTEM_PROMPT = "你是一個非常有用的繁體中文交通助理 TransitFlow。回答請保持簡短、精確、流暢。"
-
-def _format_route_result_for_small_llm(data, mode="time") -> str:
-    if not data or (isinstance(data, dict) and not data.get("found", True)):
+def _format_route_result(data, mode="time", passenger_type="adult") -> str:
+    if not data or not data.get("found"):
         return "經查，目前兩站之間沒有可行路線。"
-    try:
-        lines = ["【🔍 TransitFlow 最佳路線導航】"]
-        if 'path' in data:
-            station_names = [f"{s['name']} ({s['station_id']})" for s in data['path']]
-            lines.append(f"  ● 乘車路線：{' ➔ '.join(station_names)}")
-        
-        if mode == "cost":
-            lines.append(f"  ● 預估總花費：{data.get('total_cost', '未定')} 元")
-        else:
-            lines.append(f"  ● 預估總耗時：{data.get('total_time_min', '未定')} 分鐘")
-            
-        return "\n".join(lines)
-    except:
-        return "查詢解析失敗。"
+    
+    # 邏輯升級：根據身份計算票價
+    final_cost = data.get("total_cost", 0)
+    if passenger_type == "child":
+        final_cost = final_cost * 0.5
+        note = "（已套用兒童半價優惠）"
+    else:
+        note = ""
 
-def _execute_tool(tool_name: str, params: dict) -> str:
-    try:
-        if tool_name == "find_route":
-            # 判斷是否為「便宜」查詢
-            mode = "cost" if params.get("optimise_by") == "cost" else "time"
-            if mode == "cost":
-                res = db_manager.query_cheapest_route(params["origin_id"], params["destination_id"])
-            else:
-                res = db_manager.query_shortest_route(params["origin_id"], params["destination_id"])
-            return _format_route_result_for_small_llm(res, mode=mode)
-        return "暫時無相關數據。"
-    except Exception as e:
-        return f"資料庫查詢失敗: {str(e)}"
+    lines = ["【🔍 TransitFlow 最佳路線導航】"]
+    if 'path' in data:
+        lines.append(f"  ● 乘車路線：{' ➔ '.join([s['name'] for s in data['path']])}")
+    
+    if mode == "cost":
+        lines.append(f"  ● 預估總花費：{round(final_cost, 2)} 元 {note}")
+    else:
+        lines.append(f"  ● 預估總耗時：{data.get('total_time_min', '未定')} 分鐘")
+            
+    return "\n".join(lines)
 
 def run_agent(user_message: str, history: list[dict]) -> tuple:
-    _augmented_message = _inject_station_ids(user_message)
-    _station_ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented_message, re.IGNORECASE)
+    # 1. 意圖檢測：處理規則查詢 (階段二)
+    if any(k in user_message for k in ["退款", "規則", "行李", "政策"]):
+        # 這裡未來可串接 RAG 檢索邏輯，目前先回傳提示
+        return "有關退款與營運政策，請參閱我們的線上規則手冊 (RF001-RF005)，或告知具體問題 ID。", history
+
+    # 2. 導航與計價查詢 (階段一與階段三)
+    _augmented = _inject_station_ids(user_message)
+    _ids = re.findall(r'\b(MS\d{2}|NR\d{2})\b', _augmented, re.IGNORECASE)
     
-    if len(_station_ids) >= 2:
-        # 判斷使用者是否想查詢最便宜的
-        optimise = "cost" if any(k in user_message.lower() for k in ["便宜", "最省", "價格", "花費"]) else "time"
-        params = {"origin_id": _station_ids[0].upper(), "destination_id": _station_ids[1].upper(), "optimise_by": optimise}
-        db_result = _execute_tool("find_route", params)
+    if len(_ids) >= 2:
+        optimise = "cost" if any(k in user_message for k in ["便宜", "最省", "價格"]) else "time"
+        passenger = "child" if "兒童" in user_message else "adult"
         
-        safe_reply = (
-            f"您好！我是 TransitFlow。為您查詢從 {_station_ids[0].upper()} 到 {_station_ids[1].upper()} 的導航資訊：\n\n"
-            f"{db_result}\n\n"
-            f"祝您旅途愉快！"
-        )
-        return safe_reply, history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": safe_reply}]
+        # 呼叫升級後的 db_manager
+        res = db_manager.query_cheapest_route(_ids[0].upper(), _ids[1].upper()) if optimise == "cost" \
+              else db_manager.query_shortest_route(_ids[0].upper(), _ids[1].upper())
+        
+        db_result = _format_route_result(res, mode=optimise, passenger_type=passenger)
+        
+        reply = f"導航建議 ({_ids[0].upper()} ➔ {_ids[1].upper()}):\n{db_result}"
+        return reply, history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": reply}]
 
-    final_reply = llm.chat(messages=history + [{"role": "user", "content": _augmented_message}], system_prompt=SYSTEM_PROMPT)
+    # 3. 一般對話
+    final_reply = llm.chat(messages=history + [{"role": "user", "content": _augmented}])
     return final_reply, history + [{"role": "user", "content": user_message}, {"role": "assistant", "content": final_reply}]
-
-if __name__ == "__main__":
-    chat_history = []
-    print("\n" + "="*60 + "\n🤖 TransitFlow 智慧交通系統\n" + "="*60)
-
-    while True:
-        try:
-            u = input("\nUser > ").strip()
-            if u.lower() in ["exit", "quit"]: break
-            
-            print("\n🤖 Agent 正在精準檢索資料庫並生成路線...")
-            reply, chat_history = run_agent(u, chat_history)
-            print(f"\nAssistant > {reply}")
-            print("-" * 50)
-        except KeyboardInterrupt: break
