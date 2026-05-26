@@ -8,6 +8,7 @@ Students: You do NOT need to change this file.
 """
 
 import sys
+
 sys.path.insert(0, ".")
 
 import gradio as gr
@@ -34,23 +35,22 @@ SECRET_QUESTIONS = [
 
 # ── Chat handler ───────────────────────────────────────────────────────────────
 
-def chat(user_message: str, history_display: list, agent_history: list,
-         show_debug: bool, current_user: str):
+
+def chat(
+    user_message: str,
+    history_display: list,
+    agent_history: list,
+    show_debug: bool,
+    current_user: str,
+):
     if not user_message.strip():
         return history_display, agent_history, gr.update()
 
-    if show_debug:
-        answer, new_agent_history, debug_text = run_agent(
-            user_message, agent_history, debug=True, current_user_email=current_user
-        )
-    else:
-        answer, new_agent_history = run_agent(
-            user_message, agent_history, debug=False, current_user_email=current_user
-        )
-        debug_text = ""
+    answer, new_agent_history = run_agent(user_message, agent_history)
+    debug_text = ""
 
     history_display = history_display + [
-        {"role": "user",      "content": user_message},
+        {"role": "user", "content": user_message},
         {"role": "assistant", "content": answer},
     ]
 
@@ -70,7 +70,11 @@ _KNOWN_OLLAMA_MODELS = ["llama3.2:1b", "llama3.1:8b"]
 def get_ollama_status():
     if llm.ollama_available():
         return "🟢 Ollama is running locally"
-    return "🔴 Ollama not detected — install from ollama.com and run `ollama pull " + OLLAMA_CHAT_MODEL + "`"
+    return (
+        "🔴 Ollama not detected — install from ollama.com and run `ollama pull "
+        + OLLAMA_CHAT_MODEL
+        + "`"
+    )
 
 
 def get_chat_model_choices() -> list:
@@ -90,10 +94,16 @@ def get_initial_chat_model_value() -> str:
 def on_chat_model_change(value: str):
     if value == "gemini":
         status = llm.set_chat_provider("gemini")
-        return f"**Active:** ☁️ Gemini ({GEMINI_CHAT_MODEL})\n\n{status}", get_ollama_status()
+        return (
+            f"**Active:** ☁️ Gemini ({GEMINI_CHAT_MODEL})\n\n{status}",
+            get_ollama_status(),
+        )
     available = set(llm.get_available_ollama_models())
     if value not in available:
-        return f"⚠️ `{value}` is not pulled. Run: `ollama pull {value}`", get_ollama_status()
+        return (
+            f"⚠️ `{value}` is not pulled. Run: `ollama pull {value}`",
+            get_ollama_status(),
+        )
     llm.set_chat_provider("ollama")
     status = llm.set_chat_model(value)
     return f"**Active:** {value}\n\n{status}", get_ollama_status()
@@ -101,13 +111,17 @@ def on_chat_model_change(value: str):
 
 # ── Auth handlers ──────────────────────────────────────────────────────────────
 
+
 def do_login(email: str, password: str):
     """Handle login form submission."""
     if not email.strip() or not password.strip():
         return (
             gr.update(value="Please enter your email and password.", visible=True),
             None,
-            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(visible=True),
         )
 
@@ -116,7 +130,10 @@ def do_login(email: str, password: str):
         return (
             gr.update(value="Incorrect email or password.", visible=True),
             None,
-            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(visible=True),
         )
 
@@ -145,16 +162,27 @@ def do_logout():
     )
 
 
-def do_register(email, first_name, surname, year_of_birth, password, secret_question, secret_answer):
+def do_register(
+    email, first_name, surname, year_of_birth, password, secret_question, secret_answer
+):
     """Handle registration form submission."""
-    if not all([
-        str(email).strip(), str(first_name).strip(), str(surname).strip(),
-        str(password).strip(), secret_question, str(secret_answer).strip(),
-    ]):
+    if not all(
+        [
+            str(email).strip(),
+            str(first_name).strip(),
+            str(surname).strip(),
+            str(password).strip(),
+            secret_question,
+            str(secret_answer).strip(),
+        ]
+    ):
         return (
             gr.update(value="All fields are required.", visible=True),
             None,
-            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(visible=True),
         )
 
@@ -164,21 +192,34 @@ def do_register(email, first_name, surname, year_of_birth, password, secret_ques
             raise ValueError
     except (ValueError, TypeError):
         return (
-            gr.update(value="Please enter a valid year of birth (e.g. 1990).", visible=True),
+            gr.update(
+                value="Please enter a valid year of birth (e.g. 1990).", visible=True
+            ),
             None,
-            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(visible=True),
         )
 
     ok, err = register_user(
-        email.strip(), first_name.strip(), surname.strip(),
-        year, password, secret_question, secret_answer.strip(),
+        email.strip(),
+        first_name.strip(),
+        surname.strip(),
+        year,
+        password,
+        secret_question,
+        secret_answer.strip(),
     )
     if not ok:
         return (
             gr.update(value=err, visible=True),
             None,
-            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(visible=True),
         )
 
@@ -233,21 +274,29 @@ def forgot_reset_password(email: str, answer: str, new_password: str):
         return gr.update(value="Incorrect answer. Please try again.", visible=True)
 
     if not update_password(email.strip(), new_password):
-        return gr.update(value="Failed to update password. Please try again.", visible=True)
+        return gr.update(
+            value="Failed to update password. Please try again.", visible=True
+        )
 
-    return gr.update(value="**Password reset successfully. You can now log in.**", visible=True)
+    return gr.update(
+        value="**Password reset successfully. You can now log in.**", visible=True
+    )
 
 
 # ── Panel visibility toggles ──────────────────────────────────────────────────
 
+
 def show_login_panel():
     return gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
+
 
 def show_register_panel():
     return gr.update(visible=False), gr.update(visible=True), gr.update(visible=False)
 
+
 def show_forgot_panel():
     return gr.update(visible=False), gr.update(visible=False), gr.update(visible=True)
+
 
 def hide_all_panels():
     return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
@@ -268,10 +317,9 @@ EXAMPLES = [
 # ── Build UI ───────────────────────────────────────────────────────────────────
 
 with gr.Blocks(title="TransitFlow") as demo:
-
     # ── Hidden state ──────────────────────────────────────────────────
     agent_history_state = gr.State([])
-    current_user_state  = gr.State(None)   # None = guest, email str = logged in
+    current_user_state = gr.State(None)  # None = guest, email str = logged in
 
     # ── Header: title + auth buttons ─────────────────────────────────
     with gr.Row(equal_height=True):
@@ -281,7 +329,7 @@ with gr.Blocks(title="TransitFlow") as demo:
         """)
         with gr.Column(scale=0, min_width=240):
             with gr.Row():
-                login_btn    = gr.Button("👤 Login",    size="sm", variant="secondary")
+                login_btn = gr.Button("👤 Login", size="sm", variant="secondary")
                 register_btn = gr.Button("📝 Register", size="sm", variant="secondary")
             user_info_display = gr.Markdown("", visible=False)
             logout_btn = gr.Button("Logout", size="sm", variant="stop", visible=False)
@@ -289,12 +337,12 @@ with gr.Blocks(title="TransitFlow") as demo:
     # ── Login panel (hidden by default) ──────────────────────────────
     with gr.Column(visible=False) as login_panel:
         gr.Markdown("### Login")
-        login_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
+        login_email_in = gr.Textbox(label="Email", placeholder="you@example.com")
         login_password_in = gr.Textbox(label="Password", type="password")
-        login_error_msg   = gr.Markdown("", visible=False)
+        login_error_msg = gr.Markdown("", visible=False)
         with gr.Row():
             login_submit_btn = gr.Button("Login", variant="primary")
-            forgot_link_btn  = gr.Button("Forgot password?", size="sm")
+            forgot_link_btn = gr.Button("Forgot password?", size="sm")
             login_cancel_btn = gr.Button("Cancel", size="sm")
 
     # ── Register panel (hidden by default) ───────────────────────────
@@ -302,13 +350,15 @@ with gr.Blocks(title="TransitFlow") as demo:
         gr.Markdown("### Create an Account")
         with gr.Row():
             reg_first_name_in = gr.Textbox(label="First name")
-            reg_surname_in    = gr.Textbox(label="Surname")
-        reg_email_in    = gr.Textbox(label="Email", placeholder="you@example.com")
-        reg_year_in     = gr.Textbox(label="Year of birth", placeholder="e.g. 1990")
+            reg_surname_in = gr.Textbox(label="Surname")
+        reg_email_in = gr.Textbox(label="Email", placeholder="you@example.com")
+        reg_year_in = gr.Textbox(label="Year of birth", placeholder="e.g. 1990")
         reg_password_in = gr.Textbox(label="Password", type="password")
-        reg_question_in = gr.Dropdown(choices=SECRET_QUESTIONS, label="Security question")
-        reg_answer_in   = gr.Textbox(label="Secret answer")
-        reg_error_msg   = gr.Markdown("", visible=False)
+        reg_question_in = gr.Dropdown(
+            choices=SECRET_QUESTIONS, label="Security question"
+        )
+        reg_answer_in = gr.Textbox(label="Secret answer")
+        reg_error_msg = gr.Markdown("", visible=False)
         with gr.Row():
             reg_submit_btn = gr.Button("Register", variant="primary")
             reg_cancel_btn = gr.Button("Cancel", size="sm")
@@ -316,18 +366,21 @@ with gr.Blocks(title="TransitFlow") as demo:
     # ── Forgot password panel (hidden by default) ─────────────────────
     with gr.Column(visible=False) as forgot_panel:
         gr.Markdown("### Reset Your Password")
-        forgot_email_in          = gr.Textbox(label="Email address", placeholder="you@example.com")
-        forgot_check_btn         = gr.Button("Find my question", variant="secondary")
-        forgot_question_display  = gr.Markdown("", visible=False)
-        forgot_answer_in         = gr.Textbox(label="Your answer", visible=False)
-        forgot_new_password_in   = gr.Textbox(label="New password", type="password", visible=False)
-        forgot_reset_btn         = gr.Button("Reset password", variant="primary", visible=False)
-        forgot_msg               = gr.Markdown("")
-        forgot_back_btn          = gr.Button("Back to login", size="sm")
+        forgot_email_in = gr.Textbox(
+            label="Email address", placeholder="you@example.com"
+        )
+        forgot_check_btn = gr.Button("Find my question", variant="secondary")
+        forgot_question_display = gr.Markdown("", visible=False)
+        forgot_answer_in = gr.Textbox(label="Your answer", visible=False)
+        forgot_new_password_in = gr.Textbox(
+            label="New password", type="password", visible=False
+        )
+        forgot_reset_btn = gr.Button("Reset password", variant="primary", visible=False)
+        forgot_msg = gr.Markdown("")
+        forgot_back_btn = gr.Button("Back to login", size="sm")
 
     # ── Main chat area ────────────────────────────────────────────────
     with gr.Row():
-
         # ── Left: chat ────────────────────────────────────────────────
         with gr.Column(scale=3):
             chatbot = gr.Chatbot(label="TransitFlow Assistant", height=420)
@@ -341,8 +394,10 @@ with gr.Blocks(title="TransitFlow") as demo:
                 send_btn = gr.Button("Send", variant="primary", scale=1)
 
             with gr.Row():
-                clear_btn    = gr.Button("🗑️ Clear conversation", size="sm")
-                debug_toggle = gr.Checkbox(label="🔍 Show database debug panel", value=True)
+                clear_btn = gr.Button("🗑️ Clear conversation", size="sm")
+                debug_toggle = gr.Checkbox(
+                    label="🔍 Show database debug panel", value=True
+                )
 
             # Debug panel — hidden until checkbox is ticked and a message is sent
             debug_panel = gr.Markdown(
@@ -352,7 +407,6 @@ with gr.Blocks(title="TransitFlow") as demo:
 
         # ── Right: sidebar ────────────────────────────────────────────
         with gr.Column(scale=1):
-
             gr.Markdown("### 🤖 LLM Provider")
             chat_model_dropdown = gr.Dropdown(
                 choices=get_chat_model_choices(),
@@ -361,7 +415,7 @@ with gr.Blocks(title="TransitFlow") as demo:
                 info="Local Ollama models run fully locally. Gemini uses your API key.",
             )
             provider_status = gr.Markdown(value="**Active:** llama3.2:1b")
-            ollama_status   = gr.Markdown(value=get_ollama_status())
+            ollama_status = gr.Markdown(value=get_ollama_status())
 
             gr.Markdown("---")
 
@@ -457,8 +511,13 @@ with gr.Blocks(title="TransitFlow") as demo:
     reg_submit_btn.click(
         fn=do_register,
         inputs=[
-            reg_email_in, reg_first_name_in, reg_surname_in,
-            reg_year_in, reg_password_in, reg_question_in, reg_answer_in,
+            reg_email_in,
+            reg_first_name_in,
+            reg_surname_in,
+            reg_year_in,
+            reg_password_in,
+            reg_question_in,
+            reg_answer_in,
         ],
         outputs=[
             reg_error_msg,
