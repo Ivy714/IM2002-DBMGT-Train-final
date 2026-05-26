@@ -1,14 +1,14 @@
 from __future__ import annotations
 import json
 import re
-from datetime import date
 from databases.graph import queries as graph
 from databases.relational import queries as pg
 from skeleton.llm_provider import llm
 
 
 def _extract_station_ids(text: str) -> list[str]:
-    return list(set(re.findall(r"\b(MS\d{2}|NR\d{2})\b", text, re.I)))
+    ids = re.findall(r"\b(MS\d{2}|NR\d{2})\b", text, re.I)
+    return list(dict.fromkeys(i.upper() for i in ids))
 
 
 def run_agent(
@@ -51,20 +51,24 @@ def run_agent(
                     )
 
     # 2. 處理路線查詢 (需要 Neo4j)
-    if db_raw_result is None and len(ids) >= 2:
-        if "fastest" in lower_msg:
-            tool_called = "graph.query_shortest_route"
-            db_raw_result = graph.query_shortest_route(ids[0], ids[1])
-        elif "how do i get from" in lower_msg:
-            tool_called = "graph.query_shortest_route"
-            db_raw_result = graph.query_shortest_route(ids[0], ids[1])
+    route_keywords = [
+        "route", "fastest", "shortest", "how do i get from",
+        "get from", "go from", "alternative route", "closed",
+        "路線", "最快", "最短", "怎麼去", "怎麼走", "替代", "關閉"
+    ]
+
+    if db_raw_result is None and len(ids) >= 2 and any(k in lower_msg for k in route_keywords):
+        tool_called = "graph.query_shortest_route"
+        db_raw_result = graph.query_shortest_route(ids[0], ids[1])
 
     # 3. 處理班次查詢 (需要 Postgres)
-    if (
-        db_raw_result is None
-        and ("trains run from" in lower_msg or "schedule" in lower_msg)
-        and len(ids) >= 2
-    ):
+    schedule_keywords = [
+        "trains run from", "schedule", "train from", "trains from",
+        "departures", "service from", "run from",
+        "班次", "時刻表", "列車", "火車"
+    ]
+
+    if db_raw_result is None and len(ids) >= 2 and any(k in lower_msg for k in schedule_keywords):
         tool_called = "pg.query_national_rail_availability"
         db_raw_result = pg.query_national_rail_availability(
             ids[0], ids[1], "2026-06-01"
@@ -92,10 +96,21 @@ def run_agent(
         if debug
         else ""
     )
+
     system_prompt = (
-        f"使用以下資訊回答使用者: {json.dumps(db_raw_result, default=str)}"
+        "You are TransitFlow, a helpful rail and metro assistant. "
+        "Answer in the same language as the user's question. "
+        "If database or policy results are provided, use them as the source of truth. "
+        "Do not say you cannot answer when the provided result contains relevant information. "
+        "Summarize the result clearly for a passenger. "
+        "Do not merge rules from different policy categories. "
+        "Preserve distinctions between foldable bicycles and standard bicycles exactly as provided. "
+        "Do not invent restrictions, fees, or conditions not explicitly stated. "
+        f"Database or policy result: {json.dumps(db_raw_result, default=str)}"
         if db_raw_result
-        else "回答使用者問題。"
+        else
+        "You are TransitFlow, a helpful rail and metro assistant. "
+        "Answer in the same language as the user's question."
     )
 
     answer = llm.chat(
