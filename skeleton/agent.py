@@ -302,7 +302,7 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
     lower = msg.lower()
     ids = _extract_station_ids(augmented)
 
-    if email and any(k in lower for k in ("my booking", "我的訂", "show booking", "booking history", "訂票紀錄")):
+    if email and any(k in lower for k in ("my booking", "my bookings", "我的訂", "show my", "show booking", "booking history", "訂票紀錄", "訂單")):
         data = _json_user_bookings(email)
         lines = [f"【{email} 的訂單】"]
         for b in data["national_rail"][:5]:
@@ -409,7 +409,20 @@ def run_agent(
                 return reply, new_h, f"intent={handler.__name__}"
             return reply, new_h
 
-    if any(k in msg.lower() for k in ("book", "訂票", "cancel", "取消訂單")) and current_user_email:
+    data_reply = _handle_data_query(msg, augmented, current_user_email)
+    if data_reply:
+        new_h = history + [{"role": "user", "content": msg}, {"role": "assistant", "content": data_reply}]
+        if debug:
+            return data_reply, new_h, "intent=json_or_graph"
+        return data_reply, new_h
+
+    lower = msg.lower()
+    wants_write = (
+        current_user_email
+        and any(k in lower for k in ("book me", "make a booking", "cancel booking", "取消訂", "幫我訂"))
+        and not any(k in lower for k in ("my booking", "show my", "booking history", "我的訂單"))
+    )
+    if wants_write:
         reply = (
             "訂票／取消需使用 PostgreSQL 關聯層（`databases/relational/queries.py`）。"
             "目前此 agent 僅整合 Neo4j 路線與 JSON 查詢；可先查班次、票價與訂單紀錄。"
@@ -418,13 +431,6 @@ def run_agent(
         if debug:
             return reply, new_h, "booking=requires_relational"
         return reply, new_h
-
-    data_reply = _handle_data_query(msg, augmented, current_user_email)
-    if data_reply:
-        new_h = history + [{"role": "user", "content": msg}, {"role": "assistant", "content": data_reply}]
-        if debug:
-            return data_reply, new_h, "intent=json_or_graph"
-        return data_reply, new_h
 
     system = (
         f"你是 TransitFlow 助手。今日 {date.today().isoformat()}。"
