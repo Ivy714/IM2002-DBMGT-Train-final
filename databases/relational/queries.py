@@ -901,42 +901,92 @@ def update_password(email: str, new_password: str) -> bool:
 def query_policy_vector_search(
     embedding: list[float], top_k: int = VECTOR_TOP_K
 ) -> list[dict]:
-    """Find the most relevant policy documents for a given query embedding."""
     sql = """
-        SELECT
-            title,
-            category,
-            content,
-            1 - (embedding <=> %s::vector) AS similarity
+    SELECT
+        chunk_id,
+        title,
+        category,
+        document_type,
+        policy_id,
+        content,
+        metadata,
+        source_file,
+        1 - (embedding <=> %s::vector) AS similarity
         FROM policy_documents
         WHERE 1 - (embedding <=> %s::vector) > %s
         ORDER BY embedding <=> %s::vector
         LIMIT %s
     """
+
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                sql, (vec_str, vec_str, VECTOR_SIMILARITY_THRESHOLD, vec_str, top_k)
+                sql,
+                (vec_str, vec_str, VECTOR_SIMILARITY_THRESHOLD, vec_str, top_k),
             )
             return [dict(row) for row in cur.fetchall()]
 
-
 def store_policy_document(
+    chunk_id: str,
     title: str,
     category: str,
+    document_type: str,
+    policy_id: str,
     content: str,
+    metadata: dict,
     embedding: list[float],
     source_file: str = "",
 ) -> int:
     """Insert a policy document with its embedding into the database."""
+
+    import json
+
     sql = """
-        INSERT INTO policy_documents (title, category, content, embedding, source_file)
-        VALUES (%s, %s, %s, %s::vector, %s)
+        INSERT INTO policy_documents (
+            chunk_id,
+            title,
+            category,
+            document_type,
+            policy_id,
+            content,
+            metadata,
+            embedding,
+            source_file
+        )
+        VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s::jsonb, %s::vector, %s
+        )
+        ON CONFLICT (chunk_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            category = EXCLUDED.category,
+            document_type = EXCLUDED.document_type,
+            policy_id = EXCLUDED.policy_id,
+            content = EXCLUDED.content,
+            metadata = EXCLUDED.metadata,
+            embedding = EXCLUDED.embedding,
+            source_file = EXCLUDED.source_file
         RETURNING id
     """
+
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (title, category, content, vec_str, source_file))
+            cur.execute(
+                sql,
+                (
+                    chunk_id,
+                    title,
+                    category,
+                    document_type,
+                    policy_id,
+                    content,
+                    json.dumps(metadata),
+                    vec_str,
+                    source_file,
+                ),
+            )
             return cur.fetchone()[0]

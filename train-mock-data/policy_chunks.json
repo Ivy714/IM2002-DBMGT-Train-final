@@ -1,0 +1,990 @@
+[
+  {
+    "chunk_id": "refund_policy_RF001",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy",
+    "title": "National Rail – Normal Service – Single or Return",
+    "content": "National Rail – Normal Service – Single or Return (RF001). Applies to national_rail tickets: ['single', 'return']; service type: normal. RF001_W1 Early cancellation: Cancellation requested 48 or more hours before scheduled departure; refund 100%; admin fee $0.0. Status condition: RF001_W2 Standard cancellation: Cancellation requested between 24 and 48 hours before scheduled departure; refund 75%; admin fee $0.5. Status condition: RF001_W3 Late cancellation: Cancellation requested between 2 and 24 hours before scheduled departure; refund 50%; admin fee $0.5. Status condition: RF001_W4 No refund: Cancellation requested less than 2 hours before departure, or after departure time has passed; refund 0%; admin fee $0.0. Status condition: For return tickets, each leg is assessed independently. If the outbound leg has already been travelled, only the return leg amount is eligible for refund, assessed against the return departure time. Passengers who do not travel and do not cancel in advance are treated as a no-show. No refund is issued for no-shows.",
+    "metadata": {
+      "policy_id": "RF001",
+      "label": "National Rail – Normal Service – Single or Return",
+      "network_type": "national_rail",
+      "service_type": "normal",
+      "ticket_types": [
+        "single",
+        "return"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF001\")]",
+      "rule_ids": [
+        "RF001_W1",
+        "RF001_W2",
+        "RF001_W3",
+        "RF001_W4"
+      ],
+      "refund_percent_options": [
+        0,
+        50,
+        75,
+        100
+      ],
+      "admin_fee_usd_options": [
+        0.0,
+        0.5
+      ],
+      "related_policy_ids": [
+        "RF001"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF002",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy",
+    "title": "National Rail – Express Service – Single or Return",
+    "content": "National Rail – Express Service – Single or Return (RF002). Applies to national_rail tickets: ['single', 'return']; service type: express. RF002_W1 Early cancellation: Cancellation requested 48 or more hours before scheduled departure; refund 100%; admin fee $1.0. Status condition: RF002_W2 Late cancellation: Cancellation requested between 24 and 48 hours before scheduled departure; refund 50%; admin fee $1.0. Status condition: RF002_W3 No refund: Cancellation requested less than 24 hours before departure, or after departure time has passed; refund 0%; admin fee $0.0. Status condition: Same as normal service: each leg assessed independently against its own departure time. No refund issued for no-shows on express services.",
+    "metadata": {
+      "policy_id": "RF002",
+      "label": "National Rail – Express Service – Single or Return",
+      "network_type": "national_rail",
+      "service_type": "express",
+      "ticket_types": [
+        "single",
+        "return"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF002\")]",
+      "rule_ids": [
+        "RF002_W1",
+        "RF002_W2",
+        "RF002_W3"
+      ],
+      "refund_percent_options": [
+        0,
+        50,
+        100
+      ],
+      "admin_fee_usd_options": [
+        0.0,
+        1.0
+      ],
+      "related_policy_ids": [
+        "RF002"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF003",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy",
+    "title": "Metro – Single Ticket",
+    "content": "Metro – Single Ticket (RF003). Applies to metro tickets: ['single']; service type: None. RF003_W1 Full refund: Cancellation requested before the passenger has tapped in at the origin station; refund 100%; admin fee $0.0. Status condition: Booking status is 'confirmed' and journey has not commenced RF003_W2 No refund: Journey has already commenced (passenger has tapped in); refund 0%; admin fee $0.0. Status condition: Booking status is 'completed' or travelled_at is not null Metro single tickets are valid on the travel date only. A booking with status 'cancelled' is already cancelled and no further refund action is needed.",
+    "metadata": {
+      "policy_id": "RF003",
+      "label": "Metro – Single Ticket",
+      "network_type": "metro",
+      "service_type": null,
+      "ticket_types": [
+        "single"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF003\")]",
+      "rule_ids": [
+        "RF003_W1",
+        "RF003_W2"
+      ],
+      "refund_percent_options": [
+        0,
+        100
+      ],
+      "admin_fee_usd_options": [
+        0.0
+      ],
+      "related_policy_ids": [
+        "RF003"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF004",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy",
+    "title": "Metro – Day Pass",
+    "content": "Metro – Day Pass (RF004). Applies to metro tickets: ['day_pass']; service type: None. RF004_W1 Full refund: Cancellation requested before the passenger has made their first tap-in on the travel date; refund 100%; admin fee $0.0. Status condition: Booking status is 'confirmed' and travelled_at is null RF004_W2 No refund: Day pass has been activated (first tap-in recorded); refund 0%; admin fee $0.0. Status condition: Booking status is 'completed' or travelled_at is not null Day passes are non-transferable and valid only for the calendar day of purchase.",
+    "metadata": {
+      "policy_id": "RF004",
+      "label": "Metro – Day Pass",
+      "network_type": "metro",
+      "service_type": null,
+      "ticket_types": [
+        "day_pass"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF004\")]",
+      "rule_ids": [
+        "RF004_W1",
+        "RF004_W2"
+      ],
+      "refund_percent_options": [
+        0,
+        100
+      ],
+      "admin_fee_usd_options": [
+        0.0
+      ],
+      "related_policy_ids": [
+        "RF004"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF005_RF005_R1",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy_rule",
+    "title": "Delay Compensation – All Networks - RF005_R1",
+    "content": "Delay Compensation – All Networks (RF005) - RF005_R1. Train delayed 30–59 minutes due to operator fault 50% refund of the fare for the delayed leg Submit claim via app or customer service within 28 days of travel date",
+    "metadata": {
+      "policy_id": "RF005",
+      "label": "Delay Compensation – All Networks",
+      "network_type": "all",
+      "service_type": null,
+      "ticket_types": [
+        "single",
+        "return",
+        "day_pass"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "rule_id": "RF005_R1",
+      "rule_type": "compensation_rules",
+      "refund_percent": null,
+      "admin_fee_usd": null,
+      "claim_deadline_days": null,
+      "related_policy_ids": [
+        "RF005"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF005_RF005_R2",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy_rule",
+    "title": "Delay Compensation – All Networks - RF005_R2",
+    "content": "Delay Compensation – All Networks (RF005) - RF005_R2. Train delayed 60–119 minutes due to operator fault 100% refund of the fare for the delayed leg Submit claim via app or customer service within 28 days of travel date",
+    "metadata": {
+      "policy_id": "RF005",
+      "label": "Delay Compensation – All Networks",
+      "network_type": "all",
+      "service_type": null,
+      "ticket_types": [
+        "single",
+        "return",
+        "day_pass"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "rule_id": "RF005_R2",
+      "rule_type": "compensation_rules",
+      "refund_percent": null,
+      "admin_fee_usd": null,
+      "claim_deadline_days": null,
+      "related_policy_ids": [
+        "RF005"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF005_RF005_R3",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy_rule",
+    "title": "Delay Compensation – All Networks - RF005_R3",
+    "content": "Delay Compensation – All Networks (RF005) - RF005_R3. Train delayed 120 minutes or more due to operator fault 100% refund of the fare for the delayed leg, plus reimbursement of alternative transport costs up to $10.00 Submit claim with receipts via customer service within 28 days of travel date",
+    "metadata": {
+      "policy_id": "RF005",
+      "label": "Delay Compensation – All Networks",
+      "network_type": "all",
+      "service_type": null,
+      "ticket_types": [
+        "single",
+        "return",
+        "day_pass"
+      ],
+      "topic": "refund_policy",
+      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "rule_id": "RF005_R3",
+      "rule_type": "compensation_rules",
+      "refund_percent": null,
+      "admin_fee_usd": null,
+      "claim_deadline_days": null,
+      "related_policy_ids": [
+        "RF005"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "refund_policy_RF005_notes",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy_note",
+    "title": "Delay Compensation – All Networks - notes and precedence",
+    "content": "Delay Compensation – All Networks (RF005) general notes. Delays caused by third-party events (extreme weather, security incidents, government directives, or passenger-caused incidents) are not eligible for compensation. Operator fault includes: None Non-operator fault examples: None",
+    "metadata": {
+      "policy_id": "RF005",
+      "label": "Delay Compensation – All Networks",
+      "network_type": "all",
+      "service_type": null,
+      "ticket_types": [
+        "single",
+        "return",
+        "day_pass"
+      ],
+      "topic": "policy_precedence_or_exclusions",
+      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "related_policy_ids": [
+        "RF005"
+      ]
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_advance_booking",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - advance_booking",
+    "content": "national_rail booking rule: advance_booking. max_days_in_advance: 90; min_advance: Tickets may be booked up to 10 minutes before scheduled departure, subject to seat availability.; recommended: Booking early is recommended for express services and first class, as capacity is limited.",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "advance_booking",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.advance_booking"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_seat_selection",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - seat_selection",
+    "content": "national_rail booking rule: seat_selection. first_class: {'included': True, 'fee_usd': 0.0, 'description': 'Seat selection is included at no extra charge for all first class bookings.'}; standard_class: {'included': False, 'fee_usd': 0.5, 'description': 'Seat selection is optional for standard class. Passengers who do not select a seat will be assigned one at check-in, subject to availability.', 'notes': 'Window and aisle seats are subject to availability at the time of booking.'}",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "seat_selection",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.seat_selection"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_ticket_changes",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - ticket_changes",
+    "content": "national_rail booking rule: ticket_changes. allowed: True; change_fee_usd: 1.0; deadline: Changes must be requested at least 24 hours before the scheduled departure of the service being changed.; what_can_be_changed: ['Travel date', 'Scheduled service (same route)', 'Seat selection']; what_cannot_be_changed: ['Route (origin/destination)', 'Fare class (standard to first or vice versa)', 'Ticket type (single to return or vice versa)']; how_to_change: Changes can be made via the app, website, or at a staffed ticket counter.; express_service_note: Ticket changes are not permitted for express service bookings within 24 hours of departure.",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "ticket_changes",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.ticket_changes"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_child_fares",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - child_fares",
+    "content": "national_rail booking rule: child_fares. under_5: {'fare_usd': 0.0, 'condition': 'Children under 5 years of age travel free when accompanied by a fare-paying adult. No ticket required.'}; age_5_to_15: {'discount_percent': 50, 'description': 'Children aged 5–15 (inclusive) pay 50% of the applicable adult fare (calculated using the same stops-based formula).', 'proof_of_age': 'Proof of age may be requested on board. A valid ID, school card, or birth certificate is accepted.'}; age_16_and_over: {'description': 'Passengers aged 16 and over pay the full adult fare.'}",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "child_fares",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.child_fares"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_group_fares",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - group_fares",
+    "content": "national_rail booking rule: group_fares. minimum_group_size: 10; discount_percent: 10; applicable_class: standard; conditions: Group discount applies to standard class single and return tickets only. All group members must travel on the same service. Discount is applied at the time of booking when 10 or more tickets are purchased in a single transaction.; not_applicable: Group discount does not apply to first class tickets, express services, or day passes.",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "group_fares",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.group_fares"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_payment",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - payment",
+    "content": "national_rail booking rule: payment. accepted_methods: ['credit_card', 'debit_card', 'ewallet']; payment_timing: Full payment is required at the time of booking.; currency: USD",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "payment",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.payment"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_national_rail_booking_confirmation",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "national_rail - booking_confirmation",
+    "content": "national_rail booking rule: booking_confirmation. method: Email and in-app notification sent immediately after booking.; ticket_format: Digital ticket (QR code) displayed in the app or printable PDF. No physical ticket is required.; check_in: Present QR code to platform staff or scanner at the gate before boarding.",
+    "metadata": {
+      "network_type": "national_rail",
+      "topic": "booking_confirmation",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.booking_confirmation"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_advance_booking",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - advance_booking",
+    "content": "metro booking rule: advance_booking. single_ticket: Metro single tickets are purchased on the day of travel only. Advance booking is not available.; day_pass: Metro day passes are purchased on the day of travel only. They are valid from 00:00 to 23:59 on the date of purchase.; where_to_buy: Tickets can be purchased via the app or at station ticket machines.",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "advance_booking",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.advance_booking"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_seat_selection",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - seat_selection",
+    "content": "metro booking rule: seat_selection. available: False; description: Metro services have no reserved seating. Passengers board and find available seats freely.",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "seat_selection",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.seat_selection"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_ticket_changes",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - ticket_changes",
+    "content": "metro booking rule: ticket_changes. allowed: False; description: Metro tickets cannot be changed. A refund must be requested and a new ticket purchased instead (subject to refund policy RF003 or RF004).",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "ticket_changes",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [
+        "RF003",
+        "RF004"
+      ],
+      "json_path": "$.metro.ticket_changes"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_child_fares",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - child_fares",
+    "content": "metro booking rule: child_fares. under_5: {'fare_usd': 0.0, 'condition': 'Children under 5 years of age travel free when accompanied by a fare-paying adult. No ticket required.'}; age_5_to_15: {'discount_percent': 50, 'description': 'Children aged 5–15 (inclusive) pay 50% of the calculated stops-based fare, rounded to the nearest $0.10. Day pass is available at 50% ($2.50) for this age group.', 'proof_of_age': 'Proof of age may be requested on board.'}; age_16_and_over: {'description': 'Passengers aged 16 and over pay the full adult fare.'}",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "child_fares",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.child_fares"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_group_fares",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - group_fares",
+    "content": "metro booking rule: group_fares. available: False; description: Group discounts are not available on metro services.",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "group_fares",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.group_fares"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_payment",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - payment",
+    "content": "metro booking rule: payment. accepted_methods: ['credit_card', 'debit_card', 'ewallet']; payment_timing: Full payment is required at the time of purchase.; currency: USD",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "payment",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.payment"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_metro_booking_confirmation",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "metro - booking_confirmation",
+    "content": "metro booking rule: booking_confirmation. method: In-app confirmation sent immediately after purchase.; ticket_format: Digital ticket with QR code displayed in the app.; check_in: Tap QR code at the station gate scanner to begin journey.",
+    "metadata": {
+      "network_type": "metro",
+      "topic": "booking_confirmation",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.booking_confirmation"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_valid_id",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - valid_id",
+    "content": "General booking rule: valid_id. Passengers may be asked to show a valid photo ID matching the name on the booking. Accepted IDs include national ID card, passport, and driving licence.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "valid_id",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.valid_id"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_ticket_validity",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - ticket_validity",
+    "content": "General booking rule: ticket_validity. A ticket is only valid for the service, date, and passenger named on the booking. Tickets are non-transferable.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "ticket_validity",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.ticket_validity"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_fraud",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - fraud",
+    "content": "General booking rule: fraud. Use of another person's ticket, presentation of a counterfeit ticket, or deliberate fare evasion may result in a penalty fare, removal from the service, and/or legal action.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "fraud",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.fraud"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_lost_tickets",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - lost_tickets",
+    "content": "General booking rule: lost_tickets. Digital tickets can be retrieved via the app at any time using the booking reference. Passengers are advised to screenshot their QR code before travel in case of connectivity issues.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "lost_tickets",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.lost_tickets"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_customer_service",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - customer_service",
+    "content": "General booking rule: customer_service. Passengers with queries or complaints may contact customer service via the in-app chat, email, or station help desks. Response time is within 2 business days.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "customer_service",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.customer_service"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "booking_rules_general_rules_dispute_resolution",
+    "source_file": "booking_rules.json",
+    "document_type": "booking_rule",
+    "title": "general_rules - dispute_resolution",
+    "content": "General booking rule: dispute_resolution. If a passenger disagrees with a refund decision, they may escalate the case to the customer service team within 14 days of the original decision.",
+    "metadata": {
+      "network_type": "all",
+      "topic": "dispute_resolution",
+      "section": "general_rules",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.general_rules.dispute_resolution"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_bicycles",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - bicycles",
+    "content": "metro travel policy: bicycles. foldable_bicycles: {'permitted': True, 'max_folded_dimensions_cm': '90 × 45 × 30', 'peak_hour_restriction': True, 'peak_hours': '07:00–09:30 and 17:00–20:00, Monday to Friday', 'peak_hour_rule': 'Foldable bicycles are NOT permitted during peak hours even if folded.', 'fee': 0.0, 'placement': 'Passenger is responsible for keeping the bicycle with them and must not block aisles or doors.'}; standard_bicycles: {'permitted': False, 'reason': 'Standard (non-foldable) bicycles are not permitted on the metro at any time.'}; electric_scooters: {'permitted': False, 'reason': 'E-scooters and hoverboards are prohibited on all metro services due to fire safety regulations, even if folded or switched off.'}",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "bicycles",
+      "topic": "bicycles",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.bicycles"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_luggage",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - luggage",
+    "content": "metro travel policy: luggage. items_per_passenger: 2; max_dimensions_per_item_cm: 70 × 50 × 30; oversized_peak_restriction: True; oversized_peak_rule: Items exceeding the size limit are not permitted during peak hours (07:00–09:30 and 17:00–20:00 weekdays).; placement: All luggage must be held by the passenger or placed in the luggage area at the ends of the carriage. Luggage must not block seats, aisles, or doors.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "luggage",
+      "topic": "luggage",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.luggage"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_pets",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - pets",
+    "content": "metro travel policy: pets. permitted: True; conditions: Small pets in fully enclosed hard or soft carriers only.; max_carrier_dimensions_cm: 50 × 35 × 25; fee: 0.0; seat_occupancy: Pets must not occupy a seat.; exceptions: Guide dogs and registered assistance animals are permitted at all times without a carrier.; prohibited: Dogs not in carriers are not permitted on the metro, including on leads.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "pets",
+      "topic": "pets",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.pets"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_food_and_drink",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - food_and_drink",
+    "content": "metro travel policy: food_and_drink. sealed_drinks: permitted; hot_food: not permitted; strong_smelling_food: not permitted; eating: Eating is discouraged on the metro. Passengers must not leave litter.; alcohol: Alcohol consumption is not permitted on metro services or at stations.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "food_and_drink",
+      "topic": "food_and_drink",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.food_and_drink"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_priority_seating",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - priority_seating",
+    "content": "metro travel policy: priority_seating. description: Seats marked with a yellow priority sign are reserved for elderly passengers (65+), pregnant women, passengers with disabilities, and passengers travelling with young children.; rule: All other passengers must vacate priority seats immediately when requested.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "priority_seating",
+      "topic": "priority_seating",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.priority_seating"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_prohibited_items",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - prohibited_items",
+    "content": "metro travel policy: prohibited_items. Flammable or explosive materials, Weapons of any kind, Standard (non-foldable) bicycles, E-scooters and hoverboards, Items emitting strong odours that may cause discomfort to other passengers",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "prohibited_items",
+      "topic": "prohibited_items",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.prohibited_items"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_smoking_and_vaping",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - smoking_and_vaping",
+    "content": "metro travel policy: smoking_and_vaping. Strictly prohibited on all metro carriages, platforms, and station concourses.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "smoking_and_vaping",
+      "topic": "smoking_and_vaping",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.smoking_and_vaping"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_metro_noise",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "metro - noise",
+    "content": "metro travel policy: noise. Passengers are asked to keep noise to a considerate level. Use of personal audio devices with external speakers is not permitted.",
+    "metadata": {
+      "network_type": "metro",
+      "policy_category": "noise",
+      "topic": "noise",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.metro.noise"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_bicycles",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - bicycles",
+    "content": "national_rail travel policy: bicycles. foldable_bicycles: {'permitted': True, 'peak_hour_restriction': False, 'fee': 0.0, 'placement': 'Must be stored in the overhead rack or in the space at the end of the carriage.', 'max_folded_dimensions_cm': '90 × 45 × 30'}; standard_bicycles: {'permitted': True, 'conditions': 'Standard bicycles are permitted in designated bicycle bays only. Maximum 2 bicycles per train.', 'peak_hour_restriction': True, 'peak_hours': '07:00–09:30 and 16:30–19:00, Monday to Friday', 'peak_hour_rule': 'Standard bicycles are NOT permitted on national rail services during peak hours.', 'fee_usd': 2.0, 'booking': 'Bicycle spaces are first-come-first-served and cannot be reserved in advance. Fee is payable at the platform bicycle bay gate.', 'placement': 'Bicycles must be placed in the designated bicycle bay. Passengers remain responsible for their bicycle.'}; electric_scooters: {'permitted': False, 'reason': 'E-scooters and hoverboards are not permitted on national rail services.'}",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "bicycles",
+      "topic": "bicycles",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.bicycles"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_luggage",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - luggage",
+    "content": "national_rail travel policy: luggage. items_per_passenger: 3; overhead_rack: Items must fit in the overhead luggage rack above seats. No formal size restriction, but items must not cause inconvenience to other passengers.; large_items: Oversized items (e.g. large suitcases) should be placed in the dedicated luggage areas at the ends of each carriage.; storage_fee: 0.0; notes: Passengers are responsible for their own luggage at all times. The operator is not liable for lost or damaged luggage.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "luggage",
+      "topic": "luggage",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.luggage"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_pets",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - pets",
+    "content": "national_rail travel policy: pets. guide_and_assistance_dogs: Permitted at all times in all coaches at no charge.; other_dogs: {'permitted': True, 'conditions': 'Dogs must be on a lead at all times. Permitted in standard class coaches only.', 'fee': 0.0, 'seat_occupancy': 'Dogs must not occupy seats.'}; small_animals_in_carriers: {'permitted': True, 'conditions': 'Small animals in enclosed carriers permitted in standard class. Not permitted in first class coaches.', 'fee': 0.0}; large_animals: Not permitted (except registered assistance animals).",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "pets",
+      "topic": "pets",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.pets"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_food_and_drink",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - food_and_drink",
+    "content": "national_rail travel policy: food_and_drink. general: Food and drink are permitted in all coaches.; trolley_service: A refreshment trolley operates on selected services. Check the service schedule for availability.; alcohol: Alcohol is permitted in moderation. Passengers behaving disruptively due to alcohol may be asked to leave the train.; first_class: Complimentary beverages are not provided. Passengers may bring their own food and drink.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "food_and_drink",
+      "topic": "food_and_drink",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.food_and_drink"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_quiet_zones",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - quiet_zones",
+    "content": "national_rail travel policy: quiet_zones. available: True; description: Selected standard class carriages are designated quiet zones. Phone calls, loud music, and disruptive noise are not permitted in quiet zones.; identification: Quiet zone carriages are marked with a quiet zone symbol on the door and inside the carriage.; rule: Passengers should check carriage markings before boarding if a quiet journey is preferred.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "quiet_zones",
+      "topic": "quiet_zones",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.quiet_zones"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_priority_seating",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - priority_seating",
+    "content": "national_rail travel policy: priority_seating. description: Dedicated priority seats are available in all coaches, marked with a blue priority sign.; rule: Priority seats are reserved for elderly passengers (65+), pregnant women, passengers with disabilities, and passengers travelling with young children. Other passengers must vacate on request.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "priority_seating",
+      "topic": "priority_seating",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.priority_seating"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_accessibility",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - accessibility",
+    "content": "national_rail travel policy: accessibility. wheelchair_access: All national rail stations are wheelchair accessible. Ramps are available on request from platform staff.; assisted_boarding: Passengers requiring assistance should contact customer service at least 24 hours before travel.; priority_boarding: Passengers with mobility difficulties are welcome to board first. Please inform platform staff.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "accessibility",
+      "topic": "accessibility",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.accessibility"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_prohibited_items",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - prohibited_items",
+    "content": "national_rail travel policy: prohibited_items. Flammable or explosive materials, Weapons of any kind, E-scooters and hoverboards, Items emitting strong odours that may cause discomfort to other passengers",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "prohibited_items",
+      "topic": "prohibited_items",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.prohibited_items"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_smoking_and_vaping",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - smoking_and_vaping",
+    "content": "national_rail travel policy: smoking_and_vaping. Strictly prohibited on all train carriages and at all station platforms.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "smoking_and_vaping",
+      "topic": "smoking_and_vaping",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.smoking_and_vaping"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "travel_policies_national_rail_conduct",
+    "source_file": "travel_policies.json",
+    "document_type": "travel_policy",
+    "title": "national_rail - conduct",
+    "content": "national_rail travel policy: conduct. Passengers behaving in a manner that causes distress or danger to other passengers or staff may be removed from the train. In serious cases, the operator reserves the right to involve law enforcement.",
+    "metadata": {
+      "network_type": "national_rail",
+      "policy_category": "conduct",
+      "topic": "conduct",
+      "last_updated": "2024-01-01",
+      "version": "1.0",
+      "related_policy_ids": [],
+      "json_path": "$.national_rail.conduct"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "ticket_types_single_metro",
+    "source_file": "ticket_types.json",
+    "document_type": "ticket_type",
+    "title": "Single Ticket - metro",
+    "content": "Ticket type: Single Ticket (single) on metro. A one-way ticket for a single journey between an origin and destination station. Valid on the selected travel date only. pricing_model: stops_based; formula: amount = base_fare_usd + (stops_travelled × per_stop_rate_usd); example: A 3-stop journey: 0.80 + (3 × 0.30) = $1.70; fare_class: None; seat_assignment: False; validity: Travel date only. Ticket expires at midnight on the travel date.; advance_purchase: False; changes_allowed: False; refundable: True; refund_rule: RF003",
+    "metadata": {
+      "ticket_type": "single",
+      "network_type": "metro",
+      "available_on": [
+        "metro",
+        "national_rail"
+      ],
+      "topic": "ticket_type",
+      "refund_rule": "RF003",
+      "related_policy_ids": [
+        "RF003"
+      ],
+      "advance_purchase": false,
+      "changes_allowed": false,
+      "seat_assignment": false,
+      "json_path": "$[?(@.ticket_type==\"single\")].metro"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "ticket_types_single_national_rail",
+    "source_file": "ticket_types.json",
+    "document_type": "ticket_type",
+    "title": "Single Ticket - national_rail",
+    "content": "Ticket type: Single Ticket (single) on national_rail. A one-way ticket for a single journey between an origin and destination station. Valid on the selected travel date only. pricing_model: stops_based_with_fare_class; formula: amount = base_fare_usd + (stops_travelled × per_stop_rate_usd), rates vary by fare_class and service_type; fare_classes: ['standard', 'first']; seat_assignment: True; validity: Selected travel date and scheduled service only. Not valid on a different service without a change fee.; advance_purchase: True; advance_purchase_max_days: 90; changes_allowed: True; change_fee_usd: 1.0; change_deadline: At least 24 hours before scheduled departure; refundable: True; refund_rule: RF001 (normal service), RF002 (express service)",
+    "metadata": {
+      "ticket_type": "single",
+      "network_type": "national_rail",
+      "available_on": [
+        "metro",
+        "national_rail"
+      ],
+      "topic": "ticket_type",
+      "refund_rule": "RF001 (normal service), RF002 (express service)",
+      "related_policy_ids": [
+        "RF001",
+        "RF002"
+      ],
+      "advance_purchase": true,
+      "changes_allowed": true,
+      "seat_assignment": true,
+      "json_path": "$[?(@.ticket_type==\"single\")].national_rail"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "ticket_types_return_national_rail",
+    "source_file": "ticket_types.json",
+    "document_type": "ticket_type",
+    "title": "Return Ticket - national_rail",
+    "content": "Ticket type: Return Ticket (return) on national_rail. A two-leg ticket covering an outbound journey and a return journey on the same route. Each leg is priced and treated independently. pricing_model: stops_based_per_leg; formula: total amount = outbound_fare + return_fare (each leg calculated separately using stops-based pricing for the booked fare class); fare_classes: ['standard', 'first']; seat_assignment: True; outbound_validity: Selected outbound travel date and scheduled service.; return_validity: Any scheduled service on the same route within 30 days of the outbound travel date.; advance_purchase: True; advance_purchase_max_days: 90; changes_allowed: True; change_fee_usd: 1.0; change_deadline: At least 24 hours before the leg being changed; refundable: True; refund_rule: RF001 (normal service), RF002 (express service). Each leg is assessed separately.; notes: If the outbound leg has already been travelled, only the return leg is eligible for cancellation and refund.",
+    "metadata": {
+      "ticket_type": "return",
+      "network_type": "national_rail",
+      "available_on": [
+        "national_rail"
+      ],
+      "topic": "ticket_type",
+      "refund_rule": "RF001 (normal service), RF002 (express service). Each leg is assessed separately.",
+      "related_policy_ids": [
+        "RF001",
+        "RF002"
+      ],
+      "advance_purchase": true,
+      "changes_allowed": true,
+      "seat_assignment": true,
+      "json_path": "$[?(@.ticket_type==\"return\")].national_rail"
+    },
+    "embedding": null
+  },
+  {
+    "chunk_id": "ticket_types_day_pass_metro",
+    "source_file": "ticket_types.json",
+    "document_type": "ticket_type",
+    "title": "Metro Day Pass - metro",
+    "content": "Ticket type: Metro Day Pass (day_pass) on metro. Unlimited travel on all metro lines (M1, M2, M3, M4) for one full calendar day. Not valid on national rail services. pricing_model: flat_rate; price_usd: 5.0; fare_class: None; seat_assignment: False; unlimited_journeys: True; valid_lines: ['M1', 'M2', 'M3', 'M4']; validity: Calendar day of purchase from 00:00 to 23:59. Cannot be used on a different date.; advance_purchase: False; changes_allowed: False; transferable: False; refundable: True; refund_rule: RF004; notes: A day pass offers better value than individual single tickets for passengers making 3 or more metro trips in a day. Tap in and out normally at each station.",
+    "metadata": {
+      "ticket_type": "day_pass",
+      "network_type": "metro",
+      "available_on": [
+        "metro"
+      ],
+      "topic": "ticket_type",
+      "refund_rule": "RF004",
+      "related_policy_ids": [
+        "RF004"
+      ],
+      "advance_purchase": false,
+      "changes_allowed": false,
+      "seat_assignment": false,
+      "json_path": "$[?(@.ticket_type==\"day_pass\")].metro"
+    },
+    "embedding": null
+  }
+]

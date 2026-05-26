@@ -71,9 +71,19 @@ def run_agent(
         )
 
     # 4. 處理政策 RAG (需要 pgvector)
-    if db_raw_result is None and ("policy" in lower_msg or "compensation" in lower_msg):
+    policy_keywords = [
+        "policy", "compensation", "refund", "cancel", "cancellation",
+        "change", "ticket", "fare", "delay", "delayed",
+        "pet", "dog", "cat", "bicycle", "bike", "luggage",
+        "food", "drink", "smoking", "vaping", "quiet zone",
+        "priority seat", "accessibility",
+        "退款", "取消", "補償", "延誤", "改票", "車票",
+        "寵物", "狗", "貓", "腳踏車", "自行車", "行李"
+    ]
+
+    if db_raw_result is None and any(k in lower_msg for k in policy_keywords):
         tool_called = "pg.query_policy_vector_search"
-        vector = llm.get_embedding(msg)
+        vector = llm.embed(msg)
         db_raw_result = pg.query_policy_vector_search(vector)
 
     # 將結果整理給 LLM
