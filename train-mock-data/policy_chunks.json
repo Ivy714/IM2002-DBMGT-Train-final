@@ -142,27 +142,23 @@
     "source_file": "refund_policy.json",
     "document_type": "refund_policy_rule",
     "title": "Delay Compensation – All Networks - RF005_R1",
-    "content": "Delay Compensation – All Networks (RF005) - RF005_R1. Train delayed 30–59 minutes due to operator fault 50% refund of the fare for the delayed leg Submit claim via app or customer service within 28 days of travel date",
+    "content": "Delay compensation policy. If your train is delayed 30–59 minutes due to operator fault, you are entitled to a 50% refund of the fare for the delayed leg. Submit the claim via app or customer service within 28 days of the travel date. This applies to delayed train, late train, rail delay, compensation claim, reimbursement, and money back for delay.",
     "metadata": {
       "policy_id": "RF005",
       "label": "Delay Compensation – All Networks",
       "network_type": "all",
       "service_type": null,
-      "topic": "refund_policy",
-      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "topic": "delay_compensation",
+      "json_path": "$[?(@.policy_id==\"RF005\")].compensation_rules[?(@.rule_id==\"RF005_R1\")]",
       "rule_id": "RF005_R1",
-      "rule_type": "compensation_rules",
-      "refund_percent": null,
-      "admin_fee_usd": null,
-      "claim_deadline_days": null,
-      "related_policy_ids": [
-        "RF005"
-      ],
-      "ticket_type": [
-        "single",
-        "return",
-        "day_pass"
-      ]
+      "rule_type": "delay_compensation",
+      "delay_min_minutes": 30,
+      "delay_max_minutes": 59,
+      "refund_percent": 50,
+      "admin_fee_usd": 0.0,
+      "claim_deadline_days": 28,
+      "related_policy_ids": ["RF005"],
+      "ticket_type": ["single", "return", "day_pass"]
     }
   },
   {
@@ -170,27 +166,23 @@
     "source_file": "refund_policy.json",
     "document_type": "refund_policy_rule",
     "title": "Delay Compensation – All Networks - RF005_R2",
-    "content": "Delay Compensation – All Networks (RF005) - RF005_R2. Train delayed 60–119 minutes due to operator fault 100% refund of the fare for the delayed leg Submit claim via app or customer service within 28 days of travel date",
+    "content": "Delay compensation policy. If your train is delayed 60–119 minutes due to operator fault, you are entitled to a 100% refund of the fare for the delayed leg. Submit the claim via app or customer service within 28 days of the travel date. This applies to delayed train, late train, rail delay, compensation claim, reimbursement, and money back for delay.",
     "metadata": {
       "policy_id": "RF005",
       "label": "Delay Compensation – All Networks",
       "network_type": "all",
       "service_type": null,
-      "topic": "refund_policy",
-      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "topic": "delay_compensation",
+      "json_path": "$[?(@.policy_id==\"RF005\")].compensation_rules[?(@.rule_id==\"RF005_R2\")]",
       "rule_id": "RF005_R2",
-      "rule_type": "compensation_rules",
-      "refund_percent": null,
-      "admin_fee_usd": null,
-      "claim_deadline_days": null,
-      "related_policy_ids": [
-        "RF005"
-      ],
-      "ticket_type": [
-        "single",
-        "return",
-        "day_pass"
-      ]
+      "rule_type": "delay_compensation",
+      "delay_min_minutes": 60,
+      "delay_max_minutes": 119,
+      "refund_percent": 100,
+      "admin_fee_usd": 0.0,
+      "claim_deadline_days": 28,
+      "related_policy_ids": ["RF005"],
+      "ticket_type": ["single", "return", "day_pass"]
     }
   },
   {
@@ -198,50 +190,42 @@
     "source_file": "refund_policy.json",
     "document_type": "refund_policy_rule",
     "title": "Delay Compensation – All Networks - RF005_R3",
-    "content": "Delay Compensation – All Networks (RF005) - RF005_R3. Train delayed 120 minutes or more due to operator fault 100% refund of the fare for the delayed leg, plus reimbursement of alternative transport costs up to $10.00 Submit claim with receipts via customer service within 28 days of travel date",
+    "content": "Delay compensation policy. If your train is delayed 120 minutes or more due to operator fault, you are entitled to a 100% refund of the fare for the delayed leg, plus reimbursement of alternative transport costs up to $10.00. Submit the claim with receipts via customer service within 28 days of the travel date. This applies to delayed train, late train, rail delay, compensation claim, reimbursement, alternative transport reimbursement, and money back for delay.",
     "metadata": {
       "policy_id": "RF005",
       "label": "Delay Compensation – All Networks",
       "network_type": "all",
       "service_type": null,
-      "topic": "refund_policy",
-      "json_path": "$[?(@.policy_id==\"RF005\")]",
+      "topic": "delay_compensation",
+      "json_path": "$[?(@.policy_id==\"RF005\")].compensation_rules[?(@.rule_id==\"RF005_R3\")]",
       "rule_id": "RF005_R3",
-      "rule_type": "compensation_rules",
-      "refund_percent": null,
-      "admin_fee_usd": null,
-      "claim_deadline_days": null,
-      "related_policy_ids": [
-        "RF005"
-      ],
-      "ticket_type": [
-        "single",
-        "return",
-        "day_pass"
-      ]
+      "rule_type": "delay_compensation",
+      "delay_min_minutes": 120,
+      "delay_max_minutes": null,
+      "refund_percent": 100,
+      "admin_fee_usd": 0.0,
+      "alternative_transport_reimbursement_usd": 10.0,
+      "claim_deadline_days": 28,
+      "related_policy_ids": ["RF005"],
+      "ticket_type": ["single", "return", "day_pass"]
     }
   },
   {
     "chunk_id": "refund_policy_RF005_notes",
     "source_file": "refund_policy.json",
     "document_type": "refund_policy_note",
-    "title": "Delay Compensation – All Networks - notes and precedence",
-    "content": "Delay compensation is not available when a delay is caused by third-party or non-operator events. Excluded causes include extreme weather, security incidents, government directives, and passenger-caused incidents. Delay compensation applies only when the delay is due to operator fault.",
+    "title": "Delay Compensation – All Networks - exclusions",
+    "content": "Delay compensation exclusion policy. Delay compensation is not available when the delay is caused by third-party or non-operator events. Excluded causes include extreme weather, security incidents, government directives, and passenger-caused incidents. Delay compensation applies only when the train delay is due to operator fault.",
     "metadata": {
       "policy_id": "RF005",
       "label": "Delay Compensation – All Networks",
       "network_type": "all",
       "service_type": null,
-      "topic": "policy_precedence_or_exclusions",
-      "json_path": "$[?(@.policy_id==\"RF005\")]",
-      "related_policy_ids": [
-        "RF005"
-      ],
-      "ticket_type": [
-        "single",
-        "return",
-        "day_pass"
-      ]
+      "topic": "delay_compensation_exclusion",
+      "rule_type": "delay_compensation_exclusion",
+      "json_path": "$[?(@.policy_id==\"RF005\")].exclusions",
+      "related_policy_ids": ["RF005"],
+      "ticket_type": ["single", "return", "day_pass"]
     }
   },
   {
