@@ -262,6 +262,8 @@ EXAMPLES = [
     "If Old Town station (NR03) is closed, what alternative routes exist from NR01 to NR05?",
     "My train was delayed 45 minutes — what compensation am I entitled to?",
     "What is the company policy on travelling with a bicycle on national rail?",
+    "Show my bookings",
+    "Book NR01 to NR05 on 2026-06-15",
 ]
 
 

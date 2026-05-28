@@ -87,6 +87,49 @@ def _extract_booking_id(text: str) -> Optional[str]:
     return m.group(1).upper() if m else None
 
 
+def _extract_avoid_station(text: str, origin: str, dest: str, ids: list[str]) -> Optional[str]:
+    """Pick the station the user said is closed / to avoid (not origin/dest)."""
+    m = re.search(
+        r"station\s*\((MS\d{2}|NR\d{2})\)\s+is\s+(?:closed|shut|封閉|關閉)",
+        text,
+        re.I,
+    )
+    if m:
+        return m.group(1).upper()
+    m = re.search(
+        r"\b(MS\d{2}|NR\d{2})\b[^.]{0,60}?\b(?:is\s+)?(?:closed|shut|封閉|關閉)",
+        text,
+        re.I,
+    )
+    if m:
+        sid = m.group(1).upper()
+        if sid not in (origin, dest):
+            return sid
+    m = re.search(
+        r"(?:closed|shut|封閉|關閉)[^.]{0,60}?\b(MS\d{2}|NR\d{2})\b",
+        text,
+        re.I,
+    )
+    if m:
+        return m.group(1).upper()
+    for sid in ids:
+        if sid not in (origin, dest):
+            return sid
+    return None
+
+
+def _policy_query_text(msg: str, lower: str) -> str:
+    if any(k in lower for k in ("bicycle", "bike", "腳踏車", "自行車")):
+        if any(k in lower for k in ("national", "rail", "國鐵", "train")):
+            return "national rail bicycle foldable standard peak hour policy"
+        if "metro" in lower or "捷運" in msg:
+            return "metro bicycle foldable standard not permitted policy"
+    if any(k in lower for k in ("pet", "dog", "cat", "寵物", "狗", "貓")):
+        net = "national rail" if any(k in lower for k in ("rail", "國鐵", "train")) else "metro"
+        return f"{net} pet animal carrier policy"
+    return msg
+
+
 def _policy_search(query: str) -> list[dict]:
     try:
         emb = llm.embed(query)
@@ -96,6 +139,15 @@ def _policy_search(query: str) -> list[dict]:
     except Exception:
         pass
     return []
+
+
+def _format_policy_docs(docs: list[dict], limit: int = 900) -> str:
+    if not docs:
+        return ""
+    lines = [f"【{docs[0]['title']}】", docs[0]["content"][:limit]]
+    if len(docs) > 1 and docs[1].get("similarity"):
+        lines.append(f"\n（相關度 {float(docs[0].get('similarity', 0)):.2f}）")
+    return "\n".join(lines)
 
 
 def _format_refund_delay(minutes: int) -> str:
@@ -263,12 +315,29 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
     if m:
         delay = int(m.group(1))
     if delay is not None and any(k in lower for k in ("delay", "compensation", "延誤", "補償")):
+        rag = _policy_search(f"delay compensation {delay} minutes refund policy")
+        if rag:
+            return _format_policy_docs(rag)
         return _format_refund_delay(delay)
+
+    bid = _extract_booking_id(augmented)
+    if bid and any(k in lower for k in ("payment", "paid", "refund status", "付款", "支付")):
+        pay = pg.query_payment_info(bid)
+        if pay:
+            return (
+                f"【付款 {bid}】\n"
+                f"  payment_id: {pay.get('payment_id')}\n"
+                f"  amount: ${pay.get('amount_usd')} USD\n"
+                f"  method: {pay.get('method')}\n"
+                f"  status: {pay.get('status')}\n"
+                f"  paid_at: {pay.get('paid_at')}"
+            )
+        return f"找不到 {bid} 的付款紀錄。"
 
     if any(k in lower for k in ("luggage", "行李", "baggage")):
         docs = _policy_search("metro luggage policy" if "metro" in lower or "捷運" in msg else "national rail luggage")
         if docs:
-            return f"【{docs[0]['title']}】\n{docs[0]['content'][:800]}"
+            return _format_policy_docs(docs, 800)
         tp = json.loads((DATA_DIR / "travel_policies.json").read_text(encoding="utf-8"))
         net = "national_rail" if any(k in lower for k in ("rail", "國鐵", "train")) else "metro"
         lug = tp.get(net, {}).get("luggage", {})
@@ -277,16 +346,45 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
             f" {lug.get('max_dimensions_per_item_cm', lug.get('notes', ''))}"
         )
 
-    if any(k in lower for k in ("policy", "refund", "政策", "退款", "bicycle", "寵物")):
-        docs = _policy_search(msg)
+    policy_kw = (
+        "policy", "refund", "政策", "退款", "bicycle", "bike", "寵物", "pet",
+        "compensation", "補償", "luggage", "行李",
+    )
+    if any(k in lower for k in policy_kw):
+        docs = _policy_search(_policy_query_text(msg, lower))
         if docs:
-            return f"【{docs[0]['title']}】\n{docs[0]['content'][:900]}"
+            return _format_policy_docs(docs)
+        if any(k in lower for k in ("bicycle", "bike", "腳踏車", "自行車")):
+            tp = json.loads((DATA_DIR / "travel_policies.json").read_text(encoding="utf-8"))
+            net = "national_rail" if any(k in lower for k in ("national", "rail", "國鐵", "train")) else "metro"
+            bikes = tp.get(net, {}).get("bicycles", {})
+            fold = bikes.get("foldable_bicycles", {})
+            std = bikes.get("standard_bicycles", {})
+            lines = [f"【{net} 單車政策】"]
+            if fold:
+                lines.append(
+                    f"  折疊車：{'允許' if fold.get('permitted') else '不允許'} — "
+                    f"{fold.get('conditions', fold.get('notes', ''))}"
+                )
+            if std:
+                permitted = std.get("permitted")
+                detail = std.get("conditions") or std.get("reason", "")
+                lines.append(
+                    f"  一般單車：{'允許' if permitted else '不允許'} — {detail}"
+                )
+            return "\n".join(lines)
 
     if len(ids) >= 2:
         origin, dest = _parse_route_endpoints(augmented, ids)
         child = any(k in lower for k in ("child", "兒童", "小孩"))
 
-        if any(k in lower for k in ("train", "schedule", "班次", "timetable", "服務")):
+        schedule_kw = (
+            "trains run from", "train from", "trains from", "trains run",
+            "train", "schedule", "班次", "timetable", "服務", "departures",
+        )
+        if any(k in lower for k in schedule_kw) and not any(
+            k in lower for k in ("route", "fastest", "shortest", "怎麼去", "how do i get")
+        ):
             if origin.startswith("NR"):
                 rows = pg.query_national_rail_availability(origin, dest)
                 if not rows:
@@ -309,7 +407,7 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
 
         closed = any(k in lower for k in ("closed", "封閉", "關閉", "avoid", "避開"))
         if closed:
-            avoid = next((x for x in ids if x not in (origin, dest)), None)
+            avoid = _extract_avoid_station(augmented, origin, dest, ids)
             if avoid:
                 routes = graph.query_alternative_routes(origin, dest, avoid)
                 if not routes:
@@ -319,6 +417,16 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
                     stops = [legs[0]["from_station_id"]] + [lg["to_station_id"] for lg in legs]
                     lines.append(f"  {i}. {' → '.join(stops)}")
                 return "\n".join(lines)
+
+        cross = (origin.startswith("MS") and dest.startswith("NR")) or (
+            origin.startswith("NR") and dest.startswith("MS")
+        )
+        if cross and any(
+            k in lower for k in ("how do i get", "how to get", "get from", "怎麼去", "怎麼走")
+        ):
+            data = graph.query_interchange_path(origin, dest)
+            if data.get("found"):
+                return _format_route(data, cost_mode=False, child=child)
 
         if any(k in lower for k in ("ripple", "漣漪", "波及")):
             affected = graph.query_delay_ripple(ids[0], hops=2)

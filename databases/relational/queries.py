@@ -11,6 +11,7 @@ TWO ROLES ARE SERVED HERE:
 
 from __future__ import annotations
 
+import json
 import hashlib
 import os
 import random
@@ -904,9 +905,14 @@ def query_policy_vector_search(
     """Find the most relevant policy documents for a given query embedding."""
     sql = """
         SELECT
+            chunk_id,
             title,
             category,
+            document_type,
+            policy_id,
             content,
+            metadata,
+            source_file,
             1 - (embedding <=> %s::vector) AS similarity
         FROM policy_documents
         WHERE 1 - (embedding <=> %s::vector) > %s
@@ -922,21 +928,85 @@ def query_policy_vector_search(
             return [dict(row) for row in cur.fetchall()]
 
 
+def query_schedule_seat_occupancy(
+    schedule_id: str, travel_date: str, fare_class: str = "standard"
+) -> dict:
+    """
+    Return booked vs available seat counts for a national rail schedule on a date.
+
+    Task 4 extension — useful for capacity / availability questions in the agent.
+    """
+    seats = query_available_seats(schedule_id, travel_date, fare_class)
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total_seats
+                FROM seats s
+                JOIN coaches c ON c.layout_id = s.layout_id AND c.coach = s.coach
+                JOIN seat_layouts sl ON sl.layout_id = s.layout_id
+                WHERE sl.schedule_id = %s AND c.fare_class = %s
+                """,
+                (schedule_id, fare_class),
+            )
+            row = cur.fetchone()
+    total = int(row["total_seats"]) if row else 0
+    available = len(seats)
+    booked = max(total - available, 0)
+    return {
+        "schedule_id": schedule_id,
+        "travel_date": travel_date,
+        "fare_class": fare_class,
+        "total_seats": total,
+        "booked_seats": booked,
+        "available_seats": available,
+    }
+
+
 def store_policy_document(
+    chunk_id: str,
     title: str,
     category: str,
+    document_type: str,
+    policy_id: str,
     content: str,
+    metadata: dict,
     embedding: list[float],
     source_file: str = "",
 ) -> int:
-    """Insert a policy document with its embedding into the database."""
+    """Insert or update a policy chunk with its embedding."""
     sql = """
-        INSERT INTO policy_documents (title, category, content, embedding, source_file)
-        VALUES (%s, %s, %s, %s::vector, %s)
+        INSERT INTO policy_documents (
+            chunk_id, title, category, document_type, policy_id,
+            content, metadata, embedding, source_file
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s::vector, %s)
+        ON CONFLICT (chunk_id) DO UPDATE SET
+            title = EXCLUDED.title,
+            category = EXCLUDED.category,
+            document_type = EXCLUDED.document_type,
+            policy_id = EXCLUDED.policy_id,
+            content = EXCLUDED.content,
+            metadata = EXCLUDED.metadata,
+            embedding = EXCLUDED.embedding,
+            source_file = EXCLUDED.source_file
         RETURNING id
     """
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (title, category, content, vec_str, source_file))
+            cur.execute(
+                sql,
+                (
+                    chunk_id,
+                    title,
+                    category,
+                    document_type,
+                    policy_id,
+                    content,
+                    json.dumps(metadata),
+                    vec_str,
+                    source_file,
+                ),
+            )
             return cur.fetchone()[0]
