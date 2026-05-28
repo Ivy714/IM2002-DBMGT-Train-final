@@ -14,7 +14,7 @@ Students: You do NOT need to change this file.
 
 from __future__ import annotations
 import requests
-from typing import List
+from typing import List, Optional
 from google import genai
 from google.genai import types
 
@@ -194,13 +194,34 @@ class LLMProvider:
         return r.json()["message"]["content"]
 
     def _ollama_embed(self, text: str) -> List[float]:
-        r = requests.post(
-            f"{OLLAMA_BASE_URL}/api/embeddings",
-            json={"model": OLLAMA_EMBED_MODEL, "prompt": text},
-            timeout=60,
+        # Ollama >= 0.3 uses POST /api/embed; older builds use /api/embeddings.
+        attempts = (
+            (f"{OLLAMA_BASE_URL}/api/embed", {"model": OLLAMA_EMBED_MODEL, "input": text}),
+            (
+                f"{OLLAMA_BASE_URL}/api/embeddings",
+                {"model": OLLAMA_EMBED_MODEL, "prompt": text},
+            ),
         )
-        r.raise_for_status()
-        return r.json()["embedding"]
+        last_err: Optional[Exception] = None
+        for url, payload in attempts:
+            try:
+                r = requests.post(url, json=payload, timeout=60)
+                if r.status_code == 404:
+                    continue
+                r.raise_for_status()
+                data = r.json()
+                if "embedding" in data:
+                    return data["embedding"]
+                embeddings = data.get("embeddings")
+                if embeddings:
+                    first = embeddings[0]
+                    return first if isinstance(first, list) else first["embedding"]
+            except Exception as e:
+                last_err = e
+        raise RuntimeError(
+            f"Ollama embedding failed for model {OLLAMA_EMBED_MODEL}. "
+            "Ensure Ollama is running and `ollama pull nomic-embed-text` has been run."
+        ) from last_err
 
     def ollama_tool_call(
         self,
