@@ -5,7 +5,7 @@ Run from the project root::
 
     python skeleton/ui.py
 
-Then open http://127.0.0.1:7860 (or the port set via ``GRADIO_SERVER_PORT``).
+Then open http://127.0.0.1:7860
 
 The UI wires chat messages to ``skeleton.agent.run_agent``, and auth forms to
 ``databases.relational.queries`` login/register helpers.
@@ -513,38 +513,30 @@ with gr.Blocks(title="TransitFlow", theme=gr.themes.Soft()) as demo:
     )
 
 
-def _pick_server_port(preferred: int) -> int:
-    """Return ``preferred`` if free, otherwise the next free port in 7860–7870."""
+UI_SERVER_PORT = 7860
+
+
+def _ensure_port_free(port: int) -> None:
+    """Fail fast if another process (e.g. a second ui.py) already uses the port."""
     import socket
 
-    def _free(p: int) -> bool:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind(("127.0.0.1", p))
-                return True
-            except OSError:
-                return False
-
-    if _free(preferred):
-        return preferred
-    for p in range(preferred + 1, preferred + 11):
-        if _free(p):
-            print(f"⚠️  Port {preferred} is in use — using {p} instead.")
-            return p
-    raise OSError(f"No free port found near {preferred}. Stop other UI instances or set GRADIO_SERVER_PORT.")
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            raise SystemExit(
+                f"Port {port} is already in use. "
+                "Stop other UI instances: pkill -f 'skeleton/ui.py'"
+            )
 
 
 if __name__ == "__main__":
-    import os
-
-    # 127.0.0.1 avoids some macOS localhost issues; GRADIO_SERVER_PORT overrides default.
-    preferred = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
-    port = _pick_server_port(preferred)
-    print(f"Open http://127.0.0.1:{port}")
+    _ensure_port_free(UI_SERVER_PORT)
+    print(f"Open http://127.0.0.1:{UI_SERVER_PORT}")
     demo.launch(
         server_name="127.0.0.1",
-        server_port=port,
+        server_port=UI_SERVER_PORT,
         share=False,
         show_error=True,
     )
