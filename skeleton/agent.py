@@ -341,27 +341,39 @@ def _handle_booking_cancel(msg: str, augmented: str, email: Optional[str]) -> Op
         if not avail:
             return f"No national rail service {origin}→{dest} on {travel_date}."
 
-        schedule_id = avail[0]["schedule_id"]
-        seats = pg.query_available_seats(schedule_id, travel_date, fare_class)
-        if not seats:
-            return f"No {fare_class} seats left on {schedule_id} for {travel_date}."
+        last_error = ""
+        for row in avail:
+            schedule_id = row["schedule_id"]
+            seats = pg.query_available_seats(schedule_id, travel_date, fare_class)
+            if not seats:
+                continue
 
-        seat_id = seats[0]["seat_id"]
-        if "any" in lower or "auto" in lower:
-            picked = auto_select_adjacent_seats(seats, 1)
-            seat_id = picked[0] if picked else seat_id
+            seat_ids = [s["seat_id"] for s in seats]
+            if "any" in lower or "auto" in lower:
+                seat_ids = auto_select_adjacent_seats(seats, 1) or seat_ids
 
-        ok, res = pg.execute_booking(
-            user_id=uid,
-            schedule_id=schedule_id,
-            origin_station_id=origin,
-            destination_station_id=dest,
-            travel_date=travel_date,
-            fare_class=fare_class,
-            seat_id=seat_id,
-            ticket_type="return" if "return" in lower else "single",
-        )
-        return _format_booking_result(ok, res)
+            for seat_id in seat_ids:
+                ok, res = pg.execute_booking(
+                    user_id=uid,
+                    schedule_id=schedule_id,
+                    origin_station_id=origin,
+                    destination_station_id=dest,
+                    travel_date=travel_date,
+                    fare_class=fare_class,
+                    seat_id=seat_id,
+                    ticket_type="return" if "return" in lower else "single",
+                )
+                if ok:
+                    return _format_booking_result(ok, res)
+                last_error = str(res)
+                if "already have booking" in last_error.lower():
+                    return f"Booking failed: {last_error}"
+                if "already booked" in last_error.lower() or "just taken" in last_error.lower():
+                    continue
+
+        if last_error:
+            return f"Booking failed: {last_error}"
+        return f"No {fare_class} seats left for {origin}→{dest} on {travel_date}."
 
     return None
 

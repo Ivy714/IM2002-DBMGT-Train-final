@@ -21,6 +21,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import errorcodes
 
 from skeleton.config import PG_DSN, VECTOR_TOP_K, VECTOR_SIMILARITY_THRESHOLD
 
@@ -64,6 +65,48 @@ def example_query() -> dict:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("SELECT current_database() AS db;")
             return dict(cur.fetchone())
+
+
+# ── BOOKING SCHEMA MIGRATION (existing DBs without full docker reset) ─────────
+
+
+def ensure_booking_seat_schema() -> None:
+    """
+    Add ``seat_occupies_slot`` and partial unique index so cancelled seats can be rebooked.
+
+    Safe to call on every seed/booking; no-op when already applied.
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                ALTER TABLE bookings
+                ADD COLUMN IF NOT EXISTS seat_occupies_slot BOOLEAN NOT NULL DEFAULT TRUE
+                """
+            )
+            cur.execute(
+                """
+                ALTER TABLE bookings
+                DROP CONSTRAINT IF EXISTS bookings_schedule_id_travel_date_departure_time_coach_seat__key
+                """
+            )
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_active_seat_unique
+                ON bookings (schedule_id, travel_date, departure_time, coach, seat_id)
+                WHERE seat_occupies_slot = TRUE
+                """
+            )
+            cur.execute(
+                """
+                UPDATE bookings b
+                SET seat_occupies_slot = FALSE
+                FROM journeys j
+                WHERE j.journey_id = b.booking_id
+                  AND j.status = 'cancelled'
+                  AND b.seat_occupies_slot = TRUE
+                """
+            )
 
 
 # ── NATIONAL RAIL AVAILABILITY ────────────────────────────────────────────────
@@ -226,12 +269,11 @@ def query_available_seats(
         -- exclude seats already booked on this date
         AND NOT EXISTS (
             SELECT 1 FROM bookings b
-            JOIN journeys j ON j.journey_id = b.booking_id
-            WHERE b.schedule_id  = sl.schedule_id
-            AND   b.travel_date  = %s
-            AND   b.coach        = s.coach
-            AND   b.seat_id      = s.seat_id
-            AND   j.status      != 'cancelled'
+            WHERE b.schedule_id = sl.schedule_id
+            AND   b.travel_date = %s
+            AND   b.coach       = s.coach
+            AND   b.seat_id     = s.seat_id
+            AND   b.seat_occupies_slot = TRUE
         )
         ORDER BY s.coach, s.seat_row, s.seat_column
     """
@@ -395,10 +437,37 @@ def execute_booking(
     ticket_type: str = "single",
 ) -> tuple[bool, dict | str]:
     """Create a national rail booking for a logged-in user."""
+    ensure_booking_seat_schema()
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 0. 同一使用者同路线同日已 confirmed → 提示勿重複訂
+            cur.execute(
+                """
+                SELECT b.booking_id FROM bookings b
+                JOIN journeys j ON j.journey_id = b.booking_id
+                WHERE j.user_id = %s AND j.status = 'confirmed'
+                AND b.schedule_id = %s AND b.travel_date = %s
+                AND b.origin_station_id = %s AND b.destination_station_id = %s
+                LIMIT 1
+                """,
+                (
+                    user_id,
+                    schedule_id,
+                    travel_date,
+                    origin_station_id,
+                    destination_station_id,
+                ),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return (
+                    False,
+                    f"You already have booking {existing['booking_id']} on {travel_date} "
+                    f"for this route. Cancel it first or choose another date.",
+                )
+
             # 1. 確認班次存在
             cur.execute(
                 "SELECT schedule_id, service_type FROM national_rail_schedules WHERE schedule_id = %s",
@@ -482,13 +551,13 @@ def execute_booking(
 
             coach = seat["coach"]
 
-            # 6. 確認座位未被訂走
+            # 6. 確認座位未被佔用（含已取消但尚未釋放 slot 的舊資料）
             cur.execute(
                 """
                 SELECT 1 FROM bookings b
-                JOIN journeys j ON j.journey_id = b.booking_id
                 WHERE b.schedule_id = %s AND b.travel_date = %s
-                AND b.coach = %s AND b.seat_id = %s AND j.status != 'cancelled'
+                AND b.coach = %s AND b.seat_id = %s
+                AND b.seat_occupies_slot = TRUE
             """,
                 (schedule_id, travel_date, coach, seat_id),
             )
@@ -570,6 +639,14 @@ def execute_booking(
                 "booked_at": booked_at.isoformat(),
             }
 
+    except psycopg2.IntegrityError as e:
+        conn.rollback()
+        if e.pgcode == errorcodes.UNIQUE_VIOLATION:
+            return (
+                False,
+                f"Seat {seat_id} was just taken on {travel_date}. Please try another seat.",
+            )
+        return False, str(e)
     except Exception as e:
         conn.rollback()
         return False, str(e)
@@ -583,6 +660,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
     Normal (RF001): 100% / 75% / 50% / 0%
     Express (RF002): 100% / 50% / 0%
     """
+    ensure_booking_seat_schema()
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
     try:
@@ -683,6 +761,15 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                 """
                 UPDATE journeys SET status = 'cancelled' WHERE journey_id = %s
             """,
+                (booking_id,),
+            )
+
+            # 4b. 釋放座位 slot，讓同日期同座位可再次訂票
+            cur.execute(
+                """
+                UPDATE bookings SET seat_occupies_slot = FALSE
+                WHERE booking_id = %s
+                """,
                 (booking_id,),
             )
 

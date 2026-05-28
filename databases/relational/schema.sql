@@ -312,8 +312,8 @@ CREATE TABLE bookings (
     stops_travelled         INTEGER         NOT NULL CHECK (stops_travelled > 0),
     booked_at               TIMESTAMPTZ     NOT NULL,
     travelled_at            TIMESTAMPTZ,
+    seat_occupies_slot      BOOLEAN         NOT NULL DEFAULT TRUE,
     FOREIGN KEY (layout_id, coach, seat_id) REFERENCES seats(layout_id, coach, seat_id),
-    UNIQUE (schedule_id, travel_date, departure_time, coach, seat_id),
     CHECK (origin_station_id <> destination_station_id),
     CHECK (travelled_at IS NULL OR travelled_at::date >= travel_date)
 );
@@ -410,6 +410,10 @@ CREATE INDEX idx_journeys_user              ON journeys(user_id);
 CREATE INDEX idx_journeys_status            ON journeys(status);
 CREATE INDEX idx_bookings_schedule_date     ON bookings(schedule_id, travel_date);
 CREATE INDEX idx_bookings_origin_dest       ON bookings(origin_station_id, destination_station_id, travel_date);
+-- Only active seat holds block rebooking; cancelled bookings release the slot (seat_occupies_slot = FALSE).
+CREATE UNIQUE INDEX idx_bookings_active_seat_unique
+    ON bookings (schedule_id, travel_date, departure_time, coach, seat_id)
+    WHERE seat_occupies_slot = TRUE;
 CREATE INDEX idx_metro_trips_schedule_date  ON metro_trips(schedule_id, travel_date);
 CREATE INDEX idx_metro_trips_origin_dest    ON metro_trips(origin_station_id, destination_station_id, travel_date);
 CREATE INDEX idx_payments_journey           ON payments(journey_id);

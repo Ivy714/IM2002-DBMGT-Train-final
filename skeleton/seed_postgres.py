@@ -621,6 +621,10 @@ def seed_feedback(cur):
 
 def main():
     print("Connecting to PostgreSQL...")
+    sys.path.insert(0, PROJECT_DIR)
+    from databases.relational.queries import ensure_booking_seat_schema
+
+    ensure_booking_seat_schema()
     conn = connect()
     conn.autocommit = False
     cur = conn.cursor()
