@@ -1,6 +1,11 @@
 """
 TransitFlow Agent — limited to graph DB + train-mock-data JSON.
 (Relational / pgvector layers are implemented separately by the team.)
+
+Execution strategy:
+1) normalize user input (station-name -> station-id hints),
+2) try deterministic policy/data handlers first,
+3) fall back to LLM chat only when structured handlers do not match.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ _STATION_INDEX: dict[str, str] = {}
 
 
 def _load_mock() -> None:
+    """Lazy-load mock JSON datasets once and build station name/id lookup index."""
     global _STATION_INDEX
     if _MOCK:
         return
@@ -64,6 +70,11 @@ def _stops_between(stops: list, origin: str, dest: str) -> Optional[int]:
 
 
 def _inject_station_ids(text: str) -> str:
+    """
+    Annotate user text with canonical station IDs to improve downstream parsing.
+
+    Example: "City Hall to North Port" -> "City Hall (MS04) ... North Port (NR03)"
+    """
     _load_mock()
     result = text
     for name in sorted(_STATION_INDEX, key=len, reverse=True):
@@ -81,6 +92,7 @@ def _inject_station_ids(text: str) -> str:
 
 
 def _extract_station_ids(text: str) -> list[str]:
+    """Extract unique station IDs in first-appearance order."""
     seen: set[str] = set()
     out: list[str] = []
     for m in re.findall(r"\b(MS\d{2}|NR\d{2})\b", text, re.I):
@@ -92,6 +104,7 @@ def _extract_station_ids(text: str) -> list[str]:
 
 
 def _parse_route_endpoints(text: str, ids: list[str]) -> tuple[str, str]:
+    """Infer origin/destination from explicit FROM/TO patterns or first two IDs."""
     m = re.search(
         r"(?:FROM|從)\s+(MS\d{2}|NR\d{2}).*?(?:TO|到|→|->)\s+(MS\d{2}|NR\d{2})",
         text,
@@ -107,6 +120,7 @@ def _parse_route_endpoints(text: str, ids: list[str]) -> tuple[str, str]:
 # ── JSON-backed lookups (stand-in for relational queries) ─────────────────────
 
 def _json_nr_availability(origin: str, dest: str, travel_date: Optional[str] = None) -> list[dict]:
+    """Return rail schedules that include both endpoints in valid travel order."""
     _load_mock()
     out = []
     for s in _MOCK.get("nr_schedules", []):
@@ -129,6 +143,7 @@ def _json_nr_availability(origin: str, dest: str, travel_date: Optional[str] = N
 
 
 def _json_nr_fare(schedule_id: str, fare_class: str, stops: int) -> Optional[dict]:
+    """Compute rail fare for a schedule using class-specific base/per-stop rates."""
     _load_mock()
     for s in _MOCK.get("nr_schedules", []):
         if s["schedule_id"] != schedule_id:
@@ -150,6 +165,7 @@ def _json_nr_fare(schedule_id: str, fare_class: str, stops: int) -> Optional[dic
 
 
 def _json_metro_schedules(origin: str, dest: str) -> list[dict]:
+    """Return metro schedules where origin and destination lie on same route."""
     _load_mock()
     out = []
     for s in _MOCK.get("metro_schedules", []):
@@ -161,6 +177,7 @@ def _json_metro_schedules(origin: str, dest: str) -> list[dict]:
 
 
 def _json_metro_fare(schedule_id: str, stops: int) -> Optional[dict]:
+    """Compute metro fare from schedule-level fare constants and stop count."""
     _load_mock()
     for s in _MOCK.get("metro_schedules", []):
         if s["schedule_id"] == schedule_id:
@@ -177,6 +194,7 @@ def _json_metro_fare(schedule_id: str, stops: int) -> Optional[dict]:
 
 
 def _json_user_by_email(email: str) -> Optional[dict]:
+    """Find a user profile in mock data and expose split first/surname fields."""
     _load_mock()
     for u in _MOCK.get("users", []):
         if u["email"].lower() == email.lower():
@@ -190,6 +208,7 @@ def _json_user_by_email(email: str) -> Optional[dict]:
 
 
 def _json_user_bookings(email: str) -> dict:
+    """Collect both national rail bookings and metro trip history for a user."""
     user = _json_user_by_email(email)
     if not user:
         return {"national_rail": [], "metro": []}
@@ -200,6 +219,12 @@ def _json_user_bookings(email: str) -> dict:
 
 
 def _json_search_policy(query: str) -> list[dict]:
+    """
+    Lightweight keyword scoring across refund/travel/booking/ticket policy docs.
+
+    This is a deterministic fallback instead of vector search for the assignment
+    environment where a true retrieval stack may be unavailable.
+    """
     _load_mock()
     docs: list[tuple[str, str, str]] = []
     for p in _MOCK.get("refund_policy", []):
@@ -231,6 +256,7 @@ def _delay_minutes(text: str) -> Optional[int]:
 
 
 def _refund_reply(msg: str) -> Optional[str]:
+    """Return deterministic refund/cancellation guidance when intent matches."""
     if not any(k in msg.lower() for k in ("refund", "cancel", "退款", "取消", "compensation", "補償")):
         return None
     _load_mock()
@@ -265,6 +291,7 @@ def _refund_reply(msg: str) -> Optional[str]:
 
 
 def _luggage_reply(msg: str) -> Optional[str]:
+    """Return luggage allowance summary for metro or rail policy requests."""
     if not any(k in msg.lower() for k in ("luggage", "行李", "baggage", "攜帶")):
         return None
     _load_mock()
@@ -280,6 +307,7 @@ def _luggage_reply(msg: str) -> Optional[str]:
 
 
 def _format_route(data: dict, *, cost_mode: bool = False, child: bool = False) -> str:
+    """Render route API payload into concise user-facing text output."""
     if not data.get("found"):
         return "找不到可行路線。"
     fare = float(data.get("total_fare_usd", data.get("total_cost", 0)))
@@ -299,6 +327,12 @@ def _format_route(data: dict, *, cost_mode: bool = False, child: bool = False) -
 
 
 def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Optional[str]:
+    """
+    Main deterministic intent router for data/policy/route requests.
+
+    Returns a string response if a structured handler can satisfy the request;
+    returns None to allow LLM fallback.
+    """
     lower = msg.lower()
     ids = _extract_station_ids(augmented)
 
@@ -397,6 +431,15 @@ def run_agent(
     debug: bool = False,
     current_user_email: Optional[str] = None,
 ) -> tuple:
+    """
+    Execute one conversational turn.
+
+    Priority order:
+    - deterministic policy handlers (refund/luggage),
+    - deterministic data handlers (JSON + Neo4j),
+    - guarded write-action rejection for unsupported relational ops,
+    - generic LLM fallback.
+    """
     msg = user_message.strip()
     augmented = _inject_station_ids(msg)
     debug_text = ""

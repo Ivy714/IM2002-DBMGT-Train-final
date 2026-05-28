@@ -4,6 +4,12 @@ TransitFlow — Neo4j seeding
 1. Applies constraints from databases/graph/seed.cypher
 2. Loads metro_stations.json and national_rail_stations.json
 3. Creates MetroStation / NationalRailStation nodes and all links
+
+Operational notes:
+- This script is destructive by design (`DETACH DELETE`) so reruns produce a
+  clean deterministic graph from mock JSON.
+- It stores both travel-time and fare-oriented edge weights to support route
+  optimization by either speed or cost.
 """
 
 from __future__ import annotations
@@ -38,6 +44,7 @@ RAIL_JSON = DATA_DIR / "national_rail_stations.json"
 
 
 def _load_json(path: Path) -> list[dict]:
+    """Load a required JSON file and terminate early with a clear error message."""
     if not path.exists():
         print(f"Error: missing {path}")
         sys.exit(1)
@@ -46,6 +53,11 @@ def _load_json(path: Path) -> list[dict]:
 
 
 def _run_cypher_file(session, path: Path) -> None:
+    """
+    Execute semicolon-terminated Cypher statements from a file.
+
+    Empty lines and comment-only lines are ignored to keep schema files readable.
+    """
     if not path.exists():
         return
     text = path.read_text(encoding="utf-8")
@@ -67,6 +79,7 @@ def _run_cypher_file(session, path: Path) -> None:
 
 
 def seed() -> None:
+    """Rebuild the full Neo4j graph from mock station topology data."""
     metro_stations = _load_json(METRO_JSON)
     rail_stations = _load_json(RAIL_JSON)
 
@@ -74,6 +87,7 @@ def seed() -> None:
     try:
         with driver.session(database=NEO4J_DATABASE) as session:
             print("Clearing existing graph...")
+            # Hard reset ensures no stale nodes/edges survive between runs.
             session.run("MATCH (n) DETACH DELETE n")
 
             print("Applying schema constraints from seed.cypher...")
@@ -81,6 +95,8 @@ def seed() -> None:
 
             print(f"Creating {len(metro_stations)} MetroStation nodes...")
             for s in metro_stations:
+                # Store interchange hints + fare defaults directly on station nodes
+                # for easier diagnostics and future rule expansion.
                 session.run(
                     """
                     MERGE (n:MetroStation {station_id: $id})
@@ -136,6 +152,8 @@ def seed() -> None:
             metro_links = 0
             for s in metro_stations:
                 for adj in s.get("adjacent_stations", []):
+                    # `fare_weight` is per-stop incremental cost used by cheapest
+                    # path queries (base fare is added during result projection).
                     session.run(
                         """
                         MATCH (a:MetroStation {station_id: $from_id})
@@ -176,6 +194,8 @@ def seed() -> None:
             print(f"  RAIL_LINK relationships: {rail_links}")
 
             interchange_pairs: set[tuple[str, str]] = set()
+            # Build unique metro<->rail interchange pairs from either side's
+            # metadata so one-sided JSON omissions do not break transfer links.
             for s in metro_stations:
                 if s.get("is_interchange_national_rail") and s.get(
                     "interchange_national_rail_station_id"
@@ -192,6 +212,8 @@ def seed() -> None:
             ix_count = 0
             walk = INTERCHANGE_WALKING_TIME_MIN
             for metro_id, rail_id in interchange_pairs:
+                # Interchange is represented as two directed edges so traversal
+                # works in both directions without assuming undirected semantics.
                 session.run(
                     """
                     MATCH (m:MetroStation {station_id: $metro_id})
