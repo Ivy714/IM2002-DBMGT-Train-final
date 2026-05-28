@@ -527,7 +527,7 @@ def _ensure_port_free(port: int) -> None:
         except OSError:
             raise SystemExit(
                 f"Port {port} is already in use. "
-                "Stop other UI instances: pkill -f 'skeleton/ui.py'"
+                "Stop the process on that port: lsof -ti :7860 | xargs kill"
             )
 
 
