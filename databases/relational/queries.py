@@ -43,6 +43,11 @@ def _gen_payment_id() -> str:
     return f"PM-{suffix}"
 
 
+def _gen_metro_trip_id() -> str:
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"MT-{suffix}"
+
+
 def _mock_hash(plaintext: str):
     """Mock hash for seed/demo purposes. Returns (hash_hex, salt_bytes)."""
     salt = os.urandom(16)
@@ -654,12 +659,124 @@ def execute_booking(
         conn.close()
 
 
+def execute_metro_booking(
+    user_id: str,
+    schedule_id: str,
+    origin_station_id: str,
+    destination_station_id: str,
+    travel_date: str,
+    ticket_type: str = "single",
+) -> tuple[bool, dict | str]:
+    """
+    Purchase a metro single ticket (app / online mock) for a logged-in user.
+
+    Uses ``query_metro_schedules`` + ``query_metro_fare``; no seat assignment per booking_rules.json.
+    """
+    conn = psycopg2.connect(PG_DSN)
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if ticket_type not in ("single", "day_pass"):
+                return False, "Metro online booking supports single or day_pass only."
+
+            cur.execute(
+                """
+                SELECT 1 FROM metro_trips t
+                JOIN journeys j ON j.journey_id = t.trip_id
+                WHERE j.user_id = %s AND j.status = 'confirmed'
+                AND t.origin_station_id = %s AND t.destination_station_id = %s
+                AND t.travel_date = %s
+                LIMIT 1
+                """,
+                (user_id, origin_station_id, destination_station_id, travel_date),
+            )
+            if cur.fetchone():
+                return (
+                    False,
+                    "You already have a confirmed metro trip on this route and date.",
+                )
+
+            rows = query_metro_schedules(origin_station_id, destination_station_id)
+            row = next((r for r in rows if r["schedule_id"] == schedule_id), None)
+            if not row and rows:
+                row = rows[0]
+                schedule_id = row["schedule_id"]
+            if not row:
+                return False, f"No metro service {origin_station_id}→{destination_station_id}."
+
+            stops = int(row["stops_travelled"])
+            if ticket_type == "day_pass":
+                amount = 5.00
+            else:
+                fare = query_metro_fare(schedule_id, stops)
+                if not fare:
+                    return False, f"Could not calculate fare for {schedule_id}."
+                amount = float(fare["total_fare_usd"])
+
+            trip_id = _gen_metro_trip_id()
+            purchased_at = datetime.now(timezone.utc)
+            cur.execute(
+                """
+                INSERT INTO journeys (journey_id, network, user_id, ticket_type, amount_usd, status)
+                VALUES (%s, 'metro', %s, %s, %s, 'confirmed')
+                """,
+                (trip_id, user_id, ticket_type, amount),
+            )
+            cur.execute(
+                """
+                INSERT INTO metro_trips
+                    (trip_id, schedule_id, origin_station_id, destination_station_id,
+                     travel_date, day_pass_ref, stops_travelled, purchased_at, travelled_at)
+                VALUES (%s, %s, %s, %s, %s, NULL, %s, %s, NULL)
+                """,
+                (
+                    trip_id,
+                    schedule_id,
+                    origin_station_id,
+                    destination_station_id,
+                    travel_date,
+                    stops if ticket_type == "single" else None,
+                    purchased_at,
+                ),
+            )
+            payment_id = _gen_payment_id()
+            cur.execute(
+                """
+                INSERT INTO payments (payment_id, journey_id, amount_usd, method, status, paid_at)
+                VALUES (%s, %s, %s, 'ewallet', 'paid', %s)
+                """,
+                (payment_id, trip_id, amount, purchased_at),
+            )
+            conn.commit()
+            return True, {
+                "trip_id": trip_id,
+                "payment_id": payment_id,
+                "schedule_id": schedule_id,
+                "origin_station_id": origin_station_id,
+                "destination_station_id": destination_station_id,
+                "travel_date": travel_date,
+                "ticket_type": ticket_type,
+                "stops_travelled": stops,
+                "amount_usd": amount,
+                "status": "confirmed",
+            }
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
+
+
 def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | str]:
     """
-    Cancel a national rail booking and calculate refund per policy.
-    Normal (RF001): 100% / 75% / 50% / 0%
-    Express (RF002): 100% / 50% / 0%
+    Cancel a national rail booking or metro trip and calculate refund per policy.
+
+    National rail: RF001 / RF002. Metro: RF003 (single) / RF004 (day_pass).
     """
+    journey_id = booking_id.upper()
+    if journey_id.startswith("MT"):
+        return _execute_metro_cancellation(journey_id, user_id)
+
     ensure_booking_seat_schema()
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
@@ -793,6 +910,67 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                 "hours_until_departure": round(hours_until, 1),
             }
 
+    except Exception as e:
+        conn.rollback()
+        return False, str(e)
+    finally:
+        conn.close()
+
+
+def _execute_metro_cancellation(trip_id: str, user_id: str) -> tuple[bool, dict | str]:
+    """Cancel a metro trip (RF003 / RF004 — full refund before first tap-in)."""
+    conn = psycopg2.connect(PG_DSN)
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT
+                    t.trip_id,
+                    j.user_id,
+                    j.amount_usd,
+                    j.status,
+                    j.ticket_type,
+                    t.travel_date,
+                    t.travelled_at
+                FROM metro_trips t
+                JOIN journeys j ON j.journey_id = t.trip_id
+                WHERE t.trip_id = %s
+                """,
+                (trip_id,),
+            )
+            trip = cur.fetchone()
+            if not trip:
+                return False, f"Metro trip {trip_id} not found."
+            if trip["user_id"] != user_id:
+                return False, "You are not authorised to cancel this trip."
+            if trip["status"] == "cancelled":
+                return False, "Trip is already cancelled."
+            if trip["status"] == "completed" or trip["travelled_at"]:
+                return False, "Cannot cancel — journey already commenced (RF003/RF004)."
+
+            amount = float(trip["amount_usd"])
+            policy = "RF003" if trip["ticket_type"] == "single" else "RF004"
+            refund_amount = amount
+            cur.execute(
+                "UPDATE journeys SET status = 'cancelled' WHERE journey_id = %s",
+                (trip_id,),
+            )
+            cur.execute(
+                """
+                UPDATE payments SET status = 'refunded'
+                WHERE journey_id = %s AND status = 'paid'
+                """,
+                (trip_id,),
+            )
+            conn.commit()
+            return True, {
+                "booking_id": trip_id,
+                "original_amount_usd": amount,
+                "refund_amount_usd": refund_amount,
+                "admin_fee_usd": 0.0,
+                "policy_note": f"{policy}: 100% refund before first tap-in",
+            }
     except Exception as e:
         conn.rollback()
         return False, str(e)

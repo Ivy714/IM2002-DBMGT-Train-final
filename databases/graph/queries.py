@@ -420,6 +420,34 @@ def query_alternative_routes(
             legs[0]["total_time_min"] = record["total_time"] if legs else record["total_time"]
             routes.append(legs)
 
+    if routes:
+        return routes
+
+    # Cross-network fallback (metro + rail + interchange) when same-network has no path.
+    cross_cypher = """
+    MATCH (start:NationalRailStation {station_id: $origin_id}),
+          (end:NationalRailStation {station_id: $destination_id})
+    MATCH p = (start)-[:METRO_LINK|RAIL_LINK|INTERCHANGE_TO*..20]-(end)
+    WHERE NONE(n IN nodes(p) WHERE n.station_id = $avoid_id)
+    WITH p,
+         reduce(t = 0, r IN relationships(p) | t + coalesce(r.time_weight, 0)) AS total_time
+    RETURN p, total_time
+    ORDER BY total_time ASC
+    LIMIT $max_routes
+    """
+    with _session() as session:
+        for record in session.run(
+            cross_cypher,
+            origin_id=origin_id,
+            destination_id=destination_id,
+            avoid_id=avoid_station_id,
+            max_routes=max_routes,
+        ):
+            legs = _path_legs(record["p"])
+            if legs:
+                legs[0]["total_time_min"] = record["total_time"]
+            routes.append(legs)
+
     return routes
 
 

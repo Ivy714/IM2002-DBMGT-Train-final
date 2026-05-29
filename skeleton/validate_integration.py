@@ -175,6 +175,21 @@ def main() -> int:
             hash_504 = h.stdout.strip()
     ok("policy_chunks.json matches 113403501", hash_501 == hash_504, f"{hash_501[:8]} vs {hash_504[:8]}")
 
+    print("\n=== Policy JSON (offline) ===")
+    from skeleton.policy_lookup import search_policy_json
+
+    ok(
+        "RF010 metro online (JSON)",
+        search_policy_json("metro online book app") is not None,
+        "",
+    )
+    ok(
+        "RF005 60min (JSON)",
+        search_policy_json("delay 60 minutes compensation") is not None
+        and "100%" in search_policy_json("delay 60 minutes compensation"),
+        "",
+    )
+
     print(f"\n=== Summary: {len(FAILURES)} failure(s) ===")
     for f in FAILURES:
         print(f"  - {f}")

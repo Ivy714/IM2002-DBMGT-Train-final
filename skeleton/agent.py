@@ -11,7 +11,7 @@ Rule-based router that answers passenger questions by calling:
 
 Design goals (course README):
 - National rail availability respects travel direction (origin stop before destination).
-- Logged-in users can book/cancel national rail via ``execute_booking`` / ``execute_cancellation``.
+- Logged-in users can book/cancel national rail and metro via PostgreSQL booking functions.
 - Policy questions prefer vector search over ``policy_chunks.json`` embeddings.
 """
 
@@ -26,7 +26,9 @@ from databases.graph import queries as graph
 from databases.relational import queries as pg
 from databases.relational.queries import auto_select_adjacent_seats
 from skeleton.config import DATA_DIR
+from skeleton.agent_tools import TOOLS, execute_tool
 from skeleton.llm_provider import llm
+from skeleton.policy_lookup import search_policy_json
 
 # Lazy-built map: lowercase station name or id -> canonical station_id (MS## / NR##)
 _STATION_INDEX: dict[str, str] = {}
@@ -111,8 +113,8 @@ def _extract_travel_date(text: str) -> str:
 
 
 def _extract_booking_id(text: str) -> Optional[str]:
-    """Parse booking ids such as ``BK-XXXX`` or legacy ``BK001``."""
-    m = re.search(r"\b(BK-[A-Z0-9]+|BK\d{3,})\b", text, re.I)
+    """Parse journey ids: ``BK-XXXX``, ``BK001``, ``MT-XXXX``, or ``MT009``."""
+    m = re.search(r"\b(BK-[A-Z0-9]+|BK\d{3,}|MT-[A-Z0-9]+|MT\d{3,})\b", text, re.I)
     return m.group(1).upper() if m else None
 
 
@@ -166,7 +168,10 @@ def _policy_query_text(msg: str, lower: str) -> str:
 
 
 def _policy_search(query: str) -> list[dict]:
-    """Embed ``query`` and run cosine similarity against ``policy_documents``."""
+    """JSON keyword match first, then pgvector RAG when embeddings are available."""
+    json_hit = search_policy_json(query)
+    if json_hit:
+        return [{"title": "Policy (train-mock-data JSON)", "content": json_hit, "similarity": 1.0}]
     try:
         emb = llm.embed(query)
         docs = pg.query_policy_vector_search(emb)
@@ -261,6 +266,22 @@ def _format_booking_result(ok: bool, res: Any) -> str:
     )
 
 
+def _format_metro_booking_result(ok: bool, res: Any) -> str:
+    """Format ``execute_metro_booking`` success/failure."""
+    if not ok:
+        return f"Metro booking failed: {res}"
+    return (
+        f"【Metro ticket confirmed】\n"
+        f"  trip_id: {res.get('trip_id')}\n"
+        f"  schedule: {res.get('schedule_id')}\n"
+        f"  route: {res.get('origin_station_id')} → {res.get('destination_station_id')}\n"
+        f"  date: {res.get('travel_date')}\n"
+        f"  type: {res.get('ticket_type')}\n"
+        f"  amount: ${res.get('amount_usd')} USD\n"
+        f"  status: {res.get('status')}"
+    )
+
+
 def _format_cancel_result(ok: bool, res: Any) -> str:
     """Format ``execute_cancellation`` success/failure for the chat UI."""
     if not ok:
@@ -310,7 +331,7 @@ def _handle_booking_cancel(msg: str, augmented: str, email: Optional[str]) -> Op
     ):
         bid = _extract_booking_id(augmented)
         if not bid:
-            return "Please provide a booking id, e.g. Cancel booking BK-XXXX"
+            return "Please provide a booking/trip id, e.g. Cancel booking BK-XXXX or MT-XXXX"
         ok, res = pg.execute_cancellation(bid, uid)
         return _format_cancel_result(ok, res)
 
@@ -330,11 +351,33 @@ def _handle_booking_cancel(msg: str, augmented: str, email: Optional[str]) -> Op
         ids = _extract_station_ids(augmented)
         if len(ids) < 2:
             return "Booking requires origin and destination, e.g. Book NR01 to NR05 on 2026-06-01"
-        if not (ids[0].startswith("NR") and ids[1].startswith("NR")):
-            return "Online booking is only supported for national rail (NR stations)."
 
         origin, dest = _parse_route_endpoints(augmented, ids)
         travel_date = _extract_travel_date(augmented)
+
+        # --- Metro online booking (MS stations) ---
+        if origin.startswith("MS") and dest.startswith("MS"):
+            ticket_type = "day_pass" if "day pass" in lower or "day_pass" in lower else "single"
+            rows = pg.query_metro_schedules(origin, dest)
+            if not rows:
+                return f"No metro service {origin}→{dest}."
+            schedule_id = rows[0]["schedule_id"]
+            m = re.search(r"\b(MS_SCH\d+)\b", augmented, re.I)
+            if m:
+                schedule_id = m.group(1).upper()
+            ok, res = pg.execute_metro_booking(
+                user_id=uid,
+                schedule_id=schedule_id,
+                origin_station_id=origin,
+                destination_station_id=dest,
+                travel_date=travel_date,
+                ticket_type=ticket_type,
+            )
+            return _format_metro_booking_result(ok, res)
+
+        if not (origin.startswith("NR") and dest.startswith("NR")):
+            return "Online booking supports national rail (NR) or metro (MS) station pairs."
+
         fare_class = "first" if "first" in lower else "standard"
 
         avail = pg.query_national_rail_availability(origin, dest, travel_date)
@@ -546,10 +589,16 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
                         origin, dest, avoid, network="auto"
                     )
                 if not routes:
-                    return (
+                    guidance = search_policy_json(
+                        f"station {avoid} closed alternative routes"
+                    ) or ""
+                    base = (
                         f"No alternative route {origin}→{dest} avoiding {avoid}. "
-                        f"On this network the only corridor may pass through that station."
+                        f"The NR1 corridor has no rail bypass of {avoid} in the network map."
                     )
+                    if guidance:
+                        return f"{base}\n\n{guidance}"
+                    return base
                 lines = [f"【Routes avoiding {avoid}】"]
                 for i, legs in enumerate(routes, 1):
                     stops = [legs[0]["from_station_id"]] + [lg["to_station_id"] for lg in legs]
@@ -598,6 +647,38 @@ def _handle_data_query(msg: str, augmented: str, email: Optional[str]) -> Option
     return None
 
 
+def _try_llm_tool_calls(augmented: str, email: Optional[str]) -> Optional[str]:
+    """README Advanced: LLM picks a tool; we execute it against DB/JSON (grounded)."""
+    if not llm.ollama_available():
+        return None
+    try:
+        calls = llm.ollama_tool_call(
+            [],
+            TOOLS,
+            augmented,
+            system_prompt=(
+                "Pick at most one TransitFlow tool to answer the user. "
+                "Use exact station ids from the message."
+            ),
+        )
+    except Exception:
+        return None
+    if not calls:
+        return None
+
+    parts: list[str] = []
+    for call in calls[:2]:
+        name = call.get("name", "")
+        params = call.get("params") or {}
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except json.JSONDecodeError:
+                params = {}
+        parts.append(execute_tool(name, params, user_email=email))
+    return "\n\n".join(parts) if parts else None
+
+
 def run_agent(
     user_message: str,
     history: list[dict],
@@ -630,10 +711,19 @@ def run_agent(
                 return reply, new_h, f"intent={handler_name}"
             return reply, new_h
 
+    tool_answer = _try_llm_tool_calls(augmented, current_user_email)
+    if tool_answer:
+        new_h = history + [{"role": "user", "content": msg}, {"role": "assistant", "content": tool_answer}]
+        if debug:
+            return tool_answer, new_h, "fallback=llm_tools"
+        return tool_answer, new_h
+
     system = (
         f"You are TransitFlow assistant. Today is {date.today().isoformat()}. "
         f"User: {current_user_email or 'guest'}. "
-        "Help with routes, schedules, fares, policies; logged-in users can book/cancel national rail."
+        "Answer only from TransitFlow data shown to you. "
+        "If you lack database results, say you cannot confirm and suggest a specific query. "
+        "Never invent schedules, fares, or policy rules."
     )
     answer = llm.chat(messages=history + [{"role": "user", "content": augmented}], system_prompt=system)
     new_h = history + [{"role": "user", "content": msg}, {"role": "assistant", "content": answer}]

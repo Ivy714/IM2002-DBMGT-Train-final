@@ -920,5 +920,20 @@
       "seat_assignment": false,
       "json_path": "$[?(@.ticket_type==\"day_pass\")].metro"
     }
+  },
+  {
+    "chunk_id": "refund_policy_RF010",
+    "source_file": "refund_policy.json",
+    "document_type": "refund_policy",
+    "title": "Metro Online Single-Ticket Purchase - RF010",
+    "content": "Metro online booking policy RF010. Registered users may purchase metro single tickets and day passes through the TransitFlow mobile app for same-day travel. Single tickets use stops-based pricing from metro_schedules.json. Day passes cost $5.00 flat. Payment via credit card, debit card, or e-wallet at purchase. Digital QR ticket issued immediately. Cancellation: metro single tickets follow RF003 before first tap-in; day passes follow RF004 before first use. Related to booking_rules.json metro online_single_ticket.",
+    "metadata": {
+      "policy_id": "RF010",
+      "network_type": "metro",
+      "topic": "online_booking",
+      "ticket_types": ["single", "day_pass"],
+      "related_policy_ids": ["RF003", "RF004", "RF010"],
+      "json_path": "$[?(@.policy_id==\"RF010\")]"
+    }
   }
 ]
