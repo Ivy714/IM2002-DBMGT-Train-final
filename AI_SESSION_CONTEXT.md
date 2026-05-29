@@ -208,11 +208,6 @@ Requirements:
 
 ### Policy Vector Seeding Prompt
 ```
-After updating policy_chunks.json:
-
-python3 skeleton/seed_vectors.py
-
-Ensure the embedding model is available:
-
-ollama pull nomic-embed-text
+After editing policy_chunks.json, run: python3 skeleton/seed_vectors.py
+(Ensure Ollama is running: ollama pull nomic-embed-text)
 ```
