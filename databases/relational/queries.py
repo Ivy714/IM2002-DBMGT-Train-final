@@ -398,7 +398,7 @@ def execute_booking(
     conn.autocommit = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # 1. 確認班次存在
+            # 1. Verify the requested schedule exists
             cur.execute(
                 "SELECT schedule_id, service_type FROM national_rail_schedules WHERE schedule_id = %s",
                 (schedule_id,),
@@ -407,7 +407,7 @@ def execute_booking(
             if not schedule:
                 return False, f"Schedule {schedule_id} not found."
 
-            # 2. 確認 origin / destination 在該班次停靠，且順序正確
+            # 2. Confirm both origin and destination are served by this schedule, in the correct order
             cur.execute(
                 """
                 SELECT stop_order FROM national_rail_schedule_stops
@@ -433,7 +433,7 @@ def execute_booking(
 
             stops_travelled = dest_stop["stop_order"] - origin_stop["stop_order"]
 
-            # 3. 計算票價
+            # 3. Look up the fare rates for the requested fare class and calculate the total
             cur.execute(
                 """
                 SELECT base_fare_usd, per_stop_rate_usd
@@ -455,7 +455,7 @@ def execute_booking(
                 2,
             )
 
-            # 4. 取得 layout_id
+            # 4. Look up the seat layout associated with this schedule
             cur.execute(
                 "SELECT layout_id FROM seat_layouts WHERE schedule_id = %s",
                 (schedule_id,),
@@ -465,7 +465,7 @@ def execute_booking(
                 return False, f"No seat layout found for {schedule_id}."
             layout_id = layout_row["layout_id"]
 
-            # 5. 確認座位存在且屬於正確的 fare_class
+            # 5. Verify the requested seat exists and belongs to the correct fare class
             cur.execute(
                 """
                 SELECT s.seat_id, s.coach, c.fare_class
@@ -481,7 +481,7 @@ def execute_booking(
 
             coach = seat["coach"]
 
-            # 6. 確認座位未被訂走
+            # 6. Check the seat is not already booked (join journeys to exclude cancelled bookings)
             cur.execute(
                 """
                 SELECT 1 FROM bookings b
@@ -494,7 +494,7 @@ def execute_booking(
             if cur.fetchone():
                 return False, f"Seat {seat_id} is already booked on {travel_date}."
 
-            # 7. 取得 departure_time
+            # 7. Retrieve the departure time from the schedule (stored as first_train_time)
             cur.execute(
                 """
                 SELECT first_train_time AS departure_time
@@ -505,7 +505,7 @@ def execute_booking(
             dep = cur.fetchone()
             departure_time = dep["departure_time"] if dep else None
 
-            # 8. INSERT journey
+            # 8. Insert the parent journey row (supertype) before the child booking row
             booking_id = _gen_booking_id()
             cur.execute(
                 """
@@ -515,7 +515,7 @@ def execute_booking(
                 (booking_id, user_id, ticket_type, amount),
             )
 
-            # 9. INSERT booking
+            # 9. Insert the booking row as a child of the journey
             booked_at = datetime.now(timezone.utc)
             cur.execute(
                 """
@@ -541,7 +541,7 @@ def execute_booking(
                 ),
             )
 
-            # 10. INSERT payment
+            # 10. Record the payment as paid immediately (card-on-file model)
             payment_id = _gen_payment_id()
             cur.execute(
                 """
@@ -586,7 +586,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
     conn.autocommit = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # 1. 取得 booking 資訊
+            # 1. Fetch full booking details including journey status and service type for refund policy selection
             cur.execute(
                 """
                 SELECT
@@ -615,7 +615,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
             if booking["status"] == "completed":
                 return False, "Cannot cancel a completed journey."
 
-            # 2. 計算距出發幾小時
+            # 2. Calculate hours remaining until the scheduled departure
             departure_dt = datetime.combine(
                 booking["travel_date"],
                 booking["departure_time"],
@@ -624,12 +624,12 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
             now = datetime.now(timezone.utc)
             hours_until = (departure_dt - now).total_seconds() / 3600
 
-            # 3. 套用退款政策
+            # 3. Apply the appropriate refund policy based on service type and time until departure
             service_type = booking["service_type"]
             amount = float(booking["amount_usd"])
 
             if service_type == "normal":
-                # RF001
+                # RF001: standard refund windows for normal services
                 if hours_until >= 48:
                     refund_pct, admin_fee, note = (
                         1.00,
@@ -655,7 +655,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                         "RF001 W4: no refund (<2h)",
                     )
             else:
-                # RF002 express
+                # RF002: stricter refund windows for express services
                 if hours_until >= 48:
                     refund_pct, admin_fee, note = (
                         1.00,
@@ -677,7 +677,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
 
             refund_amount = round(max(amount * refund_pct - admin_fee, 0), 2)
 
-            # 4. 更新 journey status
+            # 4. Mark the journey as cancelled in the supertype table
             cur.execute(
                 """
                 UPDATE journeys SET status = 'cancelled' WHERE journey_id = %s
@@ -685,7 +685,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                 (booking_id,),
             )
 
-            # 5. 更新 payment status
+            # 5. Mark the original payment as refunded (only if currently 'paid')
             cur.execute(
                 """
                 UPDATE payments SET status = 'refunded'
@@ -729,17 +729,17 @@ def register_user(
     conn.autocommit = False
     try:
         with conn.cursor() as cur:
-            # 確認 email 不重複
+            # Reject registration if the email address is already in use
             cur.execute("SELECT 1 FROM users WHERE email = %s", (email,))
             if cur.fetchone():
                 return False, f"Email {email} is already registered."
 
-            # 產生 user_id
+            # Generate a sequential user_id (e.g. RU01, RU02...)
             cur.execute("SELECT COUNT(*) FROM users")
             count = cur.fetchone()[0]
             user_id = f"RU{count + 1:02d}"
 
-            # INSERT user
+            # Insert the core user profile row
             registered_at = datetime.now(timezone.utc)
             cur.execute(
                 """
@@ -750,7 +750,7 @@ def register_user(
                 (user_id, first_name, surname, email, registered_at),
             )
 
-            # INSERT credentials
+            # Hash the password and store credentials separately from the profile
             pw_hash, pw_salt = _mock_hash(password)
             cur.execute(
                 """
@@ -761,7 +761,7 @@ def register_user(
                 (user_id, pw_hash, pw_salt),
             )
 
-            # INSERT security question
+            # Hash the secret answer and store the security question
             sq_hash, sq_salt = _mock_hash(secret_answer.lower())
             cur.execute("SELECT COUNT(*) FROM user_security_questions")
             sq_count = cur.fetchone()[0]
@@ -816,7 +816,7 @@ def login_user(email: str, password: str) -> Optional[dict]:
                 password, row["password_hash"], bytes(row["password_salt"])
             ):
                 return None
-            # 不回傳 hash/salt
+            # Strip sensitive hash/salt fields before returning to the caller
             return {
                 "user_id": row["user_id"],
                 "email": row["email"],
@@ -940,3 +940,12 @@ def store_policy_document(
         with conn.cursor() as cur:
             cur.execute(sql, (title, category, content, vec_str, source_file))
             return cur.fetchone()[0]
+
+
+# ── ADDED QUERIES ─────────────────────────────────────
+def query_station_info(station_id: str) -> Optional[dict]:
+    """Return basic station info and interchange details for a given station_id."""
+
+
+def query_user_feedback(user_email: str) -> list[dict]:
+    """Return all feedback records submitted by a given user."""
