@@ -132,7 +132,6 @@ def query_station_connections(station_id: str) -> list[dict]: ...
 <!-- Share prompts that produced good output so teammates can reuse them. -->
 
 ### Schema Design Prompt
-
 ```
 Design a PostgreSQL relational schema for the TransitFlow project based on the train-mock-data JSON files.
 
@@ -151,7 +150,6 @@ Please address:
 ```
 
 ### Relational Query Implementation Prompt
-
 ```
 Implement query_national_rail_availability using _connect() and RealDictCursor.
 
@@ -204,10 +202,4 @@ Requirements:
 4. Rewrite content into natural language suitable for semantic search
 5. Optimize content for RAG retrieval
 6. Output must be compatible with seed_vectors.py
-```
-
-### Policy Vector Seeding Prompt
-```
-After editing policy_chunks.json, run: python3 skeleton/seed_vectors.py
-(Ensure Ollama is running: ollama pull nomic-embed-text)
 ```
