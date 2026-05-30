@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import random
 import string
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import psycopg2
@@ -104,8 +104,10 @@ def query_national_rail_availability(
 ) -> list[dict]:
     """
     Return national rail schedules that serve both origin and destination
-    in the correct order, with seat occupancy for the requested travel date.
+    in the correct order, filtered by operating day, with available seats.
     """
+    date_param = travel_date or date.today().isoformat()
+
     sql = """
         SELECT
             s.schedule_id,
@@ -115,26 +117,35 @@ def query_national_rail_availability(
             s.origin_station_id,
             s.destination_station_id,
             s.first_train_time,
+            s.first_train_time AS departure_time,
             s.last_train_time,
             s.frequency_min,
-            -- origin stop info
-            o_stop.stop_order                      AS origin_stop_order,
-            o_stop.travel_time_from_origin_min     AS origin_travel_time,
-            -- destination stop info
-            d_stop.stop_order                      AS destination_stop_order,
-            d_stop.travel_time_from_origin_min     AS destination_travel_time,
-            -- number of stops between origin and destination
+            o_stop.stop_order AS origin_stop_order,
+            d_stop.stop_order AS destination_stop_order,
+            o_stop.travel_time_from_origin_min AS origin_travel_time,
+            d_stop.travel_time_from_origin_min AS destination_travel_time,
             (d_stop.stop_order - o_stop.stop_order) AS stops_travelled,
-            -- total seats on this schedule (NULL for express schedules with no seat layout)
+            ARRAY_AGG(seq.station_id ORDER BY seq.stop_order) AS stop_sequence,
             seat_counts.total_seats,
-            -- seats already booked (non-cancelled) on the requested travel date
-            COALESCE(booked.booked_seats, 0)       AS booked_seats,
-            -- available_seats = total - booked; NULL when no seat layout exists (express)
+            COALESCE(booked.booked_seats, 0) AS booked_seats,
             CASE
                 WHEN seat_counts.total_seats IS NULL THEN NULL
                 ELSE seat_counts.total_seats - COALESCE(booked.booked_seats, 0)
             END AS available_seats
         FROM national_rail_schedules s
+        JOIN national_rail_schedule_operates_on op
+            ON op.schedule_id = s.schedule_id
+            AND op.day_of_week = (
+                CASE EXTRACT(ISODOW FROM %s::date)::int
+                    WHEN 1 THEN 'mon'
+                    WHEN 2 THEN 'tue'
+                    WHEN 3 THEN 'wed'
+                    WHEN 4 THEN 'thu'
+                    WHEN 5 THEN 'fri'
+                    WHEN 6 THEN 'sat'
+                    WHEN 7 THEN 'sun'
+                END
+            )::day_of_week
         JOIN national_rail_schedule_stops o_stop
             ON o_stop.schedule_id = s.schedule_id
             AND o_stop.station_id = %s
@@ -143,31 +154,48 @@ def query_national_rail_availability(
             ON d_stop.schedule_id = s.schedule_id
             AND d_stop.station_id = %s
             AND d_stop.is_stopping = TRUE
-        -- origin must appear before destination in stop sequence
-        AND o_stop.stop_order < d_stop.stop_order
-        -- count total seats per schedule from the seat inventory tables
+            AND o_stop.stop_order < d_stop.stop_order
+        JOIN national_rail_schedule_stops seq
+            ON seq.schedule_id = s.schedule_id
+            AND seq.stop_order BETWEEN o_stop.stop_order AND d_stop.stop_order
+            AND seq.is_stopping = TRUE
         LEFT JOIN (
             SELECT sl.schedule_id, COUNT(se.seat_id) AS total_seats
             FROM seat_layouts sl
             JOIN coaches co ON co.layout_id = sl.layout_id
-            JOIN seats   se ON se.layout_id = co.layout_id AND se.coach = co.coach
+            JOIN seats se ON se.layout_id = co.layout_id AND se.coach = co.coach
             GROUP BY sl.schedule_id
         ) seat_counts ON seat_counts.schedule_id = s.schedule_id
-        -- count non-cancelled bookings for the requested travel date
         LEFT JOIN (
             SELECT b.schedule_id, COUNT(*) AS booked_seats
             FROM bookings b
             JOIN journeys j ON j.journey_id = b.booking_id
             WHERE b.travel_date = %s
-            AND j.status != 'cancelled'
+              AND j.status != 'cancelled'
             GROUP BY b.schedule_id
         ) booked ON booked.schedule_id = s.schedule_id
+        GROUP BY
+            s.schedule_id,
+            s.line,
+            s.service_type,
+            s.direction,
+            s.origin_station_id,
+            s.destination_station_id,
+            s.first_train_time,
+            s.last_train_time,
+            s.frequency_min,
+            o_stop.stop_order,
+            d_stop.stop_order,
+            o_stop.travel_time_from_origin_min,
+            d_stop.travel_time_from_origin_min,
+            seat_counts.total_seats,
+            booked.booked_seats
         ORDER BY s.line, s.service_type, s.first_train_time
     """
-    date_param = travel_date or "1900-01-01"
+
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql, (origin_id, destination_id, date_param))
+            cur.execute(sql, (date_param, origin_id, destination_id, date_param))
             return [dict(row) for row in cur.fetchall()]
 
 
@@ -205,13 +233,15 @@ def query_metro_schedules(origin_id: str, destination_id: str) -> list[dict]:
             s.line,
             s.direction,
             s.first_train_time,
+            s.first_train_time AS departure_time,
             s.last_train_time,
             s.frequency_min,
             s.base_fare_usd,
             s.per_stop_rate_usd,
-            o_stop.stop_order        AS origin_stop_order,
-            d_stop.stop_order        AS destination_stop_order,
-            (d_stop.stop_order - o_stop.stop_order) AS stops_travelled
+            o_stop.stop_order AS origin_stop_order,
+            d_stop.stop_order AS destination_stop_order,
+            (d_stop.stop_order - o_stop.stop_order) AS stops_travelled,
+            ARRAY_AGG(seq.station_id ORDER BY seq.stop_order) AS stop_sequence
         FROM metro_schedules s
         JOIN metro_schedule_stops o_stop
             ON o_stop.schedule_id = s.schedule_id
@@ -219,14 +249,28 @@ def query_metro_schedules(origin_id: str, destination_id: str) -> list[dict]:
         JOIN metro_schedule_stops d_stop
             ON d_stop.schedule_id = s.schedule_id
             AND d_stop.station_id = %s
-        AND o_stop.stop_order < d_stop.stop_order
+            AND o_stop.stop_order < d_stop.stop_order
+        JOIN metro_schedule_stops seq
+            ON seq.schedule_id = s.schedule_id
+            AND seq.stop_order BETWEEN o_stop.stop_order AND d_stop.stop_order
+        GROUP BY
+            s.schedule_id,
+            s.line,
+            s.direction,
+            s.first_train_time,
+            s.last_train_time,
+            s.frequency_min,
+            s.base_fare_usd,
+            s.per_stop_rate_usd,
+            o_stop.stop_order,
+            d_stop.stop_order
         ORDER BY s.line, s.first_train_time
     """
+
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, (origin_id, destination_id))
             return [dict(row) for row in cur.fetchall()]
-
 
 def query_metro_fare(schedule_id: str, stops_travelled: int) -> Optional[dict]:
     """Calculate the metro fare for a single-ticket journey."""
