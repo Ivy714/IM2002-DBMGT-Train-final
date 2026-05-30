@@ -6,8 +6,16 @@
 //
 // Fare model (ticket_types.json / metro_schedules.json / national_rail_schedules.json):
 //   amount = base_fare_usd + (stops_travelled × per_stop_rate_usd)
+//
+// Notes:
+// - This file is intentionally schema-only (constraints + documentation notes).
+// - Station nodes and relationship edges are created by the Python seeder.
+// - `INTERCHANGE_TO` represents walking transfer between metro and rail systems
+//   and has zero fare weight because users buy separate tickets by network.
 
 // ── Constraints ───────────────────────────────────────────────────────────────
+// Enforce station_id uniqueness per label so MERGE-based seeding stays idempotent
+// and route lookup by station_id remains deterministic.
 CREATE CONSTRAINT metro_station_id_unique IF NOT EXISTS
 FOR (s:MetroStation) REQUIRE s.station_id IS UNIQUE;
 

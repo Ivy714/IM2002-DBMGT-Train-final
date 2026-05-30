@@ -11,8 +11,6 @@ TWO ROLES ARE SERVED HERE:
 
 from __future__ import annotations
 
-import hashlib
-import os
 import random
 import string
 from datetime import datetime, timezone
@@ -21,7 +19,22 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
+# argon2-cffi provides a production-grade Argon2id implementation.
+# Install with: pip install argon2-cffi
+# Argon2id is preferred over MD5/SHA-* because it has a configurable memory
+# and time cost factor, making brute-force and GPU attacks orders of magnitude
+# slower.  PasswordHasher() uses secure defaults (time_cost=3, memory_cost=64 MB).
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
 from skeleton.config import PG_DSN, VECTOR_TOP_K, VECTOR_SIMILARITY_THRESHOLD
+
+# Single shared PasswordHasher instance — reusing it avoids re-reading config
+# on every call.  argon2-cffi automatically generates a unique CSPRNG salt for
+# each hash() call and embeds it in the PHC-format output string, so two users
+# with identical passwords will always produce completely different stored hashes,
+# defeating pre-computed rainbow-table lookups.
+_ph = PasswordHasher()
 
 
 def _connect():
@@ -41,17 +54,32 @@ def _gen_payment_id() -> str:
     return f"PM-{suffix}"
 
 
-def _mock_hash(plaintext: str):
-    """Mock hash for seed/demo purposes. Returns (hash_hex, salt_bytes)."""
-    salt = os.urandom(16)
-    h = hashlib.sha256(salt + plaintext.encode("utf-8")).hexdigest()
-    return h, salt
+def _hash_password(plaintext: str) -> str:
+    """
+    Hash a plaintext string using Argon2id via argon2-cffi.
+
+    argon2-cffi embeds a unique random salt inside the returned PHC-format
+    string, so no separate salt storage is needed.  The returned string is
+    safe to store directly in user_credentials.password_hash.
+    """
+    return _ph.hash(plaintext)
 
 
-def _mock_verify(plaintext: str, stored_hash: str, stored_salt: bytes) -> bool:
-    """Verify a mock-hashed value."""
-    h = hashlib.sha256(stored_salt + plaintext.encode("utf-8")).hexdigest()
-    return h == stored_hash
+def _verify_password(plaintext: str, stored_hash: str) -> bool:
+    """
+    Verify a plaintext string against a stored Argon2id hash.
+
+    Returns True on success, False if the password is wrong or the hash
+    is malformed.  VerifyMismatchError is caught so callers never see an
+    exception for an incorrect password — only for a genuine system error.
+    """
+    try:
+        return _ph.verify(stored_hash, plaintext)
+    except VerifyMismatchError:
+        return False
+    except Exception:
+        # Any other argon2 error (corrupted hash, wrong format, etc.)
+        return False
 
 
 # ── Example ───────────────────────────────────────────────────────────────────
@@ -89,15 +117,22 @@ def query_national_rail_availability(
             s.last_train_time,
             s.frequency_min,
             -- origin stop info
-            o_stop.stop_order        AS origin_stop_order,
-            o_stop.travel_time_from_origin_min AS origin_travel_time,
+            o_stop.stop_order                      AS origin_stop_order,
+            o_stop.travel_time_from_origin_min     AS origin_travel_time,
             -- destination stop info
-            d_stop.stop_order        AS destination_stop_order,
-            d_stop.travel_time_from_origin_min AS destination_travel_time,
-            -- stops between origin and destination
+            d_stop.stop_order                      AS destination_stop_order,
+            d_stop.travel_time_from_origin_min     AS destination_travel_time,
+            -- number of stops between origin and destination
             (d_stop.stop_order - o_stop.stop_order) AS stops_travelled,
-            -- seat occupancy on travel_date (0 if no date given)
-            COALESCE(booked.booked_seats, 0) AS booked_seats
+            -- total seats on this schedule (NULL for express schedules with no seat layout)
+            seat_counts.total_seats,
+            -- seats already booked (non-cancelled) on the requested travel date
+            COALESCE(booked.booked_seats, 0)       AS booked_seats,
+            -- available_seats = total - booked; NULL when no seat layout exists (express)
+            CASE
+                WHEN seat_counts.total_seats IS NULL THEN NULL
+                ELSE seat_counts.total_seats - COALESCE(booked.booked_seats, 0)
+            END AS available_seats
         FROM national_rail_schedules s
         JOIN national_rail_schedule_stops o_stop
             ON o_stop.schedule_id = s.schedule_id
@@ -107,8 +142,17 @@ def query_national_rail_availability(
             ON d_stop.schedule_id = s.schedule_id
             AND d_stop.station_id = %s
             AND d_stop.is_stopping = TRUE
-        -- origin must come before destination
+        -- origin must appear before destination in stop sequence
         AND o_stop.stop_order < d_stop.stop_order
+        -- count total seats per schedule from the seat inventory tables
+        LEFT JOIN (
+            SELECT sl.schedule_id, COUNT(se.seat_id) AS total_seats
+            FROM seat_layouts sl
+            JOIN coaches co ON co.layout_id = sl.layout_id
+            JOIN seats   se ON se.layout_id = co.layout_id AND se.coach = co.coach
+            GROUP BY sl.schedule_id
+        ) seat_counts ON seat_counts.schedule_id = s.schedule_id
+        -- count non-cancelled bookings for the requested travel date
         LEFT JOIN (
             SELECT b.schedule_id, COUNT(*) AS booked_seats
             FROM bookings b
@@ -265,16 +309,22 @@ def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[
 
 
 def query_user_profile(user_email: str) -> Optional[dict]:
-    """Return a user's profile by email."""
+    """
+    Return a user's profile by email, or None if the email is not found.
+    Never raises an exception for an unknown email address.
+    """
     sql = """
         SELECT
             user_id,
             first_name,
             last_name,
-            first_name || ' ' || last_name AS full_name,
+            first_name || ' ' || last_name          AS full_name,
             email,
             phone,
             date_of_birth,
+            -- year_of_birth is derived from date_of_birth so callers do not
+            -- need to parse the full date when only the year is needed
+            EXTRACT(YEAR FROM date_of_birth)::int    AS year_of_birth,
             registered_at,
             is_active
         FROM users
@@ -398,7 +448,7 @@ def execute_booking(
     conn.autocommit = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # 1. 確認班次存在
+            # 1. Verify the requested schedule exists
             cur.execute(
                 "SELECT schedule_id, service_type FROM national_rail_schedules WHERE schedule_id = %s",
                 (schedule_id,),
@@ -407,7 +457,7 @@ def execute_booking(
             if not schedule:
                 return False, f"Schedule {schedule_id} not found."
 
-            # 2. 確認 origin / destination 在該班次停靠，且順序正確
+            # 2. Confirm both origin and destination are served by this schedule, in the correct order
             cur.execute(
                 """
                 SELECT stop_order FROM national_rail_schedule_stops
@@ -433,7 +483,7 @@ def execute_booking(
 
             stops_travelled = dest_stop["stop_order"] - origin_stop["stop_order"]
 
-            # 3. 計算票價
+            # 3. Look up the fare rates for the requested fare class and calculate the total
             cur.execute(
                 """
                 SELECT base_fare_usd, per_stop_rate_usd
@@ -455,7 +505,7 @@ def execute_booking(
                 2,
             )
 
-            # 4. 取得 layout_id
+            # 4. Look up the seat layout associated with this schedule
             cur.execute(
                 "SELECT layout_id FROM seat_layouts WHERE schedule_id = %s",
                 (schedule_id,),
@@ -465,7 +515,7 @@ def execute_booking(
                 return False, f"No seat layout found for {schedule_id}."
             layout_id = layout_row["layout_id"]
 
-            # 5. 確認座位存在且屬於正確的 fare_class
+            # 5. Verify the requested seat exists and belongs to the correct fare class
             cur.execute(
                 """
                 SELECT s.seat_id, s.coach, c.fare_class
@@ -481,7 +531,7 @@ def execute_booking(
 
             coach = seat["coach"]
 
-            # 6. 確認座位未被訂走
+            # 6. Check the seat is not already booked (join journeys to exclude cancelled bookings)
             cur.execute(
                 """
                 SELECT 1 FROM bookings b
@@ -494,7 +544,7 @@ def execute_booking(
             if cur.fetchone():
                 return False, f"Seat {seat_id} is already booked on {travel_date}."
 
-            # 7. 取得 departure_time
+            # 7. Retrieve the departure time from the schedule (stored as first_train_time)
             cur.execute(
                 """
                 SELECT first_train_time AS departure_time
@@ -505,7 +555,7 @@ def execute_booking(
             dep = cur.fetchone()
             departure_time = dep["departure_time"] if dep else None
 
-            # 8. INSERT journey
+            # 8. Insert the parent journey row (supertype) before the child booking row
             booking_id = _gen_booking_id()
             cur.execute(
                 """
@@ -515,7 +565,7 @@ def execute_booking(
                 (booking_id, user_id, ticket_type, amount),
             )
 
-            # 9. INSERT booking
+            # 9. Insert the booking row as a child of the journey
             booked_at = datetime.now(timezone.utc)
             cur.execute(
                 """
@@ -541,7 +591,7 @@ def execute_booking(
                 ),
             )
 
-            # 10. INSERT payment
+            # 10. Record the payment as paid immediately (card-on-file model)
             payment_id = _gen_payment_id()
             cur.execute(
                 """
@@ -586,7 +636,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
     conn.autocommit = False
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            # 1. 取得 booking 資訊
+            # 1. Fetch full booking details including journey status and service type for refund policy selection
             cur.execute(
                 """
                 SELECT
@@ -615,7 +665,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
             if booking["status"] == "completed":
                 return False, "Cannot cancel a completed journey."
 
-            # 2. 計算距出發幾小時
+            # 2. Calculate hours remaining until the scheduled departure
             departure_dt = datetime.combine(
                 booking["travel_date"],
                 booking["departure_time"],
@@ -624,12 +674,12 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
             now = datetime.now(timezone.utc)
             hours_until = (departure_dt - now).total_seconds() / 3600
 
-            # 3. 套用退款政策
+            # 3. Apply the appropriate refund policy based on service type and time until departure
             service_type = booking["service_type"]
             amount = float(booking["amount_usd"])
 
             if service_type == "normal":
-                # RF001
+                # RF001: standard refund windows for normal services
                 if hours_until >= 48:
                     refund_pct, admin_fee, note = (
                         1.00,
@@ -655,7 +705,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                         "RF001 W4: no refund (<2h)",
                     )
             else:
-                # RF002 express
+                # RF002: stricter refund windows for express services
                 if hours_until >= 48:
                     refund_pct, admin_fee, note = (
                         1.00,
@@ -677,7 +727,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
 
             refund_amount = round(max(amount * refund_pct - admin_fee, 0), 2)
 
-            # 4. 更新 journey status
+            # 4. Mark the journey as cancelled in the supertype table
             cur.execute(
                 """
                 UPDATE journeys SET status = 'cancelled' WHERE journey_id = %s
@@ -685,7 +735,7 @@ def execute_cancellation(booking_id: str, user_id: str) -> tuple[bool, dict | st
                 (booking_id,),
             )
 
-            # 5. 更新 payment status
+            # 5. Mark the original payment as refunded (only if currently 'paid')
             cur.execute(
                 """
                 UPDATE payments SET status = 'refunded'
@@ -729,17 +779,17 @@ def register_user(
     conn.autocommit = False
     try:
         with conn.cursor() as cur:
-            # 確認 email 不重複
+            # Reject registration if the email address is already in use
             cur.execute("SELECT 1 FROM users WHERE email = %s", (email,))
             if cur.fetchone():
                 return False, f"Email {email} is already registered."
 
-            # 產生 user_id
+            # Generate a sequential user_id (e.g. RU01, RU02...)
             cur.execute("SELECT COUNT(*) FROM users")
             count = cur.fetchone()[0]
             user_id = f"RU{count + 1:02d}"
 
-            # INSERT user
+            # Insert the core user profile row
             registered_at = datetime.now(timezone.utc)
             cur.execute(
                 """
@@ -750,19 +800,22 @@ def register_user(
                 (user_id, first_name, surname, email, registered_at),
             )
 
-            # INSERT credentials
-            pw_hash, pw_salt = _mock_hash(password)
+            # Hash the password with Argon2id before storing.
+            # _hash_password() returns a self-contained PHC string that includes
+            # the algorithm, cost parameters, salt, and hash — no extra columns needed.
+            pw_hash = _hash_password(password)
             cur.execute(
                 """
                 INSERT INTO user_credentials
-                    (user_id, password_hash, password_salt, hash_algorithm)
-                VALUES (%s, %s, %s, 'argon2id')
+                    (user_id, password_hash, hash_algorithm)
+                VALUES (%s, %s, 'argon2id')
             """,
-                (user_id, pw_hash, pw_salt),
+                (user_id, pw_hash),
             )
 
-            # INSERT security question
-            sq_hash, sq_salt = _mock_hash(secret_answer.lower())
+            # Hash the secret answer the same way; store case-folded so verification
+            # is case-insensitive without storing the raw answer.
+            sq_hash = _hash_password(secret_answer.lower())
             cur.execute("SELECT COUNT(*) FROM user_security_questions")
             sq_count = cur.fetchone()[0]
             sq_id = f"SQ{sq_count + 1:03d}"
@@ -770,10 +823,10 @@ def register_user(
                 """
                 INSERT INTO user_security_questions
                     (security_question_id, user_id, secret_question,
-                     secret_answer_hash, secret_answer_salt, hash_algorithm)
-                VALUES (%s, %s, %s, %s, %s, 'argon2id')
+                     secret_answer_hash, hash_algorithm)
+                VALUES (%s, %s, %s, %s, 'argon2id')
             """,
-                (sq_id, user_id, secret_question, sq_hash, sq_salt),
+                (sq_id, user_id, secret_question, sq_hash),
             )
 
             conn.commit()
@@ -798,8 +851,9 @@ def login_user(email: str, password: str) -> Optional[dict]:
             u.phone,
             u.date_of_birth,
             u.is_active,
-            uc.password_hash,
-            uc.password_salt
+            uc.password_hash
+            -- password_salt is not selected: argon2-cffi embeds the salt
+            -- inside password_hash (PHC format) so no separate column is needed
         FROM users u
         JOIN user_credentials uc ON uc.user_id = u.user_id
         WHERE u.email = %s
@@ -812,11 +866,9 @@ def login_user(email: str, password: str) -> Optional[dict]:
                 return None
             if not row["is_active"]:
                 return None
-            if not _mock_verify(
-                password, row["password_hash"], bytes(row["password_salt"])
-            ):
+            if not _verify_password(password, row["password_hash"]):
                 return None
-            # 不回傳 hash/salt
+            # Strip sensitive hash/salt fields before returning to the caller
             return {
                 "user_id": row["user_id"],
                 "email": row["email"],
@@ -846,9 +898,13 @@ def get_user_secret_question(email: str) -> Optional[str]:
 
 
 def verify_secret_answer(email: str, answer: str) -> bool:
-    """Return True if the answer matches the stored secret answer (case-insensitive)."""
+    """
+    Return True if the provided answer matches the stored secret answer.
+    Comparison is case-insensitive: the answer is lower-cased before
+    verifying against the stored Argon2id hash.
+    """
     sql = """
-        SELECT usq.secret_answer_hash, usq.secret_answer_salt
+        SELECT usq.secret_answer_hash
         FROM user_security_questions usq
         JOIN users u ON u.user_id = usq.user_id
         WHERE u.email = %s
@@ -860,12 +916,16 @@ def verify_secret_answer(email: str, answer: str) -> bool:
             row = cur.fetchone()
             if not row:
                 return False
-            stored_hash, stored_salt = row
-            return _mock_verify(answer.lower(), stored_hash, bytes(stored_salt))
+            stored_hash = row[0]
+            # Lower-case the candidate answer to match the case-folding applied at registration
+            return _verify_password(answer.lower(), stored_hash)
 
 
 def update_password(email: str, new_password: str) -> bool:
-    """Update the password for a user. Returns True if updated."""
+    """
+    Hash new_password with Argon2id and store it in user_credentials.
+    Returns True if a row was updated, False if the email was not found.
+    """
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
     try:
@@ -875,16 +935,16 @@ def update_password(email: str, new_password: str) -> bool:
             if not row:
                 return False
             user_id = row[0]
-            pw_hash, pw_salt = _mock_hash(new_password)
+            # Re-hash the new password with a fresh Argon2id salt
+            pw_hash = _hash_password(new_password)
             cur.execute(
                 """
                 UPDATE user_credentials
                 SET password_hash = %s,
-                    password_salt = %s,
                     updated_at    = now()
                 WHERE user_id = %s
             """,
-                (pw_hash, pw_salt, user_id),
+                (pw_hash, user_id),
             )
             conn.commit()
             return cur.rowcount > 0
@@ -901,92 +961,125 @@ def update_password(email: str, new_password: str) -> bool:
 def query_policy_vector_search(
     embedding: list[float], top_k: int = VECTOR_TOP_K
 ) -> list[dict]:
+    """Find the most relevant policy documents for a given query embedding."""
     sql = """
-    SELECT
-        chunk_id,
-        title,
-        category,
-        document_type,
-        policy_id,
-        content,
-        metadata,
-        source_file,
-        1 - (embedding <=> %s::vector) AS similarity
+        SELECT
+            title,
+            category,
+            content,
+            1 - (embedding <=> %s::vector) AS similarity
         FROM policy_documents
         WHERE 1 - (embedding <=> %s::vector) > %s
         ORDER BY embedding <=> %s::vector
         LIMIT %s
     """
-
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
-
     with _connect() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                sql,
-                (vec_str, vec_str, VECTOR_SIMILARITY_THRESHOLD, vec_str, top_k),
+                sql, (vec_str, vec_str, VECTOR_SIMILARITY_THRESHOLD, vec_str, top_k)
             )
             return [dict(row) for row in cur.fetchall()]
 
+
 def store_policy_document(
-    chunk_id: str,
     title: str,
     category: str,
-    document_type: str,
-    policy_id: str,
     content: str,
-    metadata: dict,
     embedding: list[float],
     source_file: str = "",
 ) -> int:
     """Insert a policy document with its embedding into the database."""
-
-    import json
-
     sql = """
-        INSERT INTO policy_documents (
-            chunk_id,
-            title,
-            category,
-            document_type,
-            policy_id,
-            content,
-            metadata,
-            embedding,
-            source_file
-        )
-        VALUES (
-            %s, %s, %s, %s, %s,
-            %s, %s::jsonb, %s::vector, %s
-        )
-        ON CONFLICT (chunk_id) DO UPDATE SET
-            title = EXCLUDED.title,
-            category = EXCLUDED.category,
-            document_type = EXCLUDED.document_type,
-            policy_id = EXCLUDED.policy_id,
-            content = EXCLUDED.content,
-            metadata = EXCLUDED.metadata,
-            embedding = EXCLUDED.embedding,
-            source_file = EXCLUDED.source_file
+        INSERT INTO policy_documents (title, category, content, embedding, source_file)
+        VALUES (%s, %s, %s, %s::vector, %s)
         RETURNING id
     """
-
     vec_str = "[" + ",".join(str(x) for x in embedding) + "]"
-
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                sql,
-                (
-                    chunk_id,
-                    title,
-                    category,
-                    document_type,
-                    policy_id,
-                    content,
-                    json.dumps(metadata),
-                    vec_str,
-                    source_file,
-                ),
-            )
+            cur.execute(sql, (title, category, content, vec_str, source_file))
             return cur.fetchone()[0]
+
+
+# ── ADDED QUERIES ─────────────────────────────────────
+
+
+def query_station_info(station_id: str) -> Optional[dict]:
+    """
+    Return basic station info and interchange details for a given station_id.
+
+    Handles both metro stations (MS* prefix) and national rail stations (NR* prefix)
+    by checking which table the ID belongs to and querying accordingly.
+
+    Returns a dict with station details, or None if the ID is not found in either table.
+    """
+    if station_id.startswith("MS"):
+        # Metro station: join with metro_station_lines to collect all served lines
+        sql = """
+            SELECT
+                ms.station_id,
+                ms.name,
+                'metro'                              AS network,
+                ms.is_interchange_metro,
+                ms.is_interchange_national_rail,
+                ms.interchange_national_rail_station_id,
+                ARRAY_AGG(msl.line ORDER BY msl.line) AS lines
+            FROM metro_stations ms
+            LEFT JOIN metro_station_lines msl ON msl.station_id = ms.station_id
+            WHERE ms.station_id = %s
+            GROUP BY ms.station_id, ms.name,
+                     ms.is_interchange_metro, ms.is_interchange_national_rail,
+                     ms.interchange_national_rail_station_id
+        """
+    else:
+        # National rail station: join with national_rail_station_lines
+        sql = """
+            SELECT
+                nrs.station_id,
+                nrs.name,
+                'national_rail'                      AS network,
+                nrs.is_interchange_national_rail,
+                nrs.is_interchange_metro,
+                nrs.interchange_metro_station_id,
+                ARRAY_AGG(nrsl.line ORDER BY nrsl.line) AS lines
+            FROM national_rail_stations nrs
+            LEFT JOIN national_rail_station_lines nrsl ON nrsl.station_id = nrs.station_id
+            WHERE nrs.station_id = %s
+            GROUP BY nrs.station_id, nrs.name,
+                     nrs.is_interchange_national_rail, nrs.is_interchange_metro,
+                     nrs.interchange_metro_station_id
+        """
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (station_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
+
+
+def query_user_feedback(user_email: str) -> list[dict]:
+    """
+    Return all feedback records submitted by a given user, identified by email.
+
+    Each record includes the journey ID, rating, optional comment, and submission
+    timestamp.  Returns an empty list (not None) if the user has no feedback or
+    the email is not found.
+    """
+    sql = """
+        SELECT
+            f.feedback_id,
+            f.journey_id,
+            j.network,
+            f.rating,
+            f.comment,
+            f.submitted_at
+        FROM feedback f
+        JOIN journeys j  ON j.journey_id = f.journey_id
+        JOIN users    u  ON u.user_id     = f.user_id
+        WHERE u.email = %s
+        ORDER BY f.submitted_at DESC
+    """
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (user_email,))
+            return [dict(row) for row in cur.fetchall()]

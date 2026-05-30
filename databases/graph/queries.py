@@ -2,6 +2,13 @@
 TransitFlow — Neo4j Graph Database Layer
 =========================================
 Pathfinding and network analysis for the dual metro + national rail graph.
+
+This module intentionally keeps two responsibilities together:
+1) route discovery with graph traversal (shortest/weighted/alternative paths),
+2) transport-specific projection logic (time, fare, interchange reporting).
+
+The query surface is consumed by `skeleton/agent.py`, so functions return
+JSON-serializable Python structures rather than Neo4j-native objects.
 """
 
 from __future__ import annotations
@@ -35,6 +42,7 @@ except Exception:
 
 
 def _session():
+    """Create a short-lived Neo4j session and fail fast if driver is unavailable."""
     if not _driver:
         raise RuntimeError("Neo4j driver is not initialized.")
     return _driver.session()
@@ -47,6 +55,15 @@ def _is_metro(station_id: str) -> bool:
 def _infer_network(
     origin_id: str, destination_id: str, network: str
 ) -> str:
+    """
+    Resolve the effective network scope for a query.
+
+    - explicit `metro`/`rail` is honored as-is,
+    - `auto` becomes:
+      - `metro` when both endpoints are metro stations,
+      - `rail` when both endpoints are rail stations,
+      - `cross` when endpoints span both networks.
+    """
     if network in ("metro", "rail"):
         return network
     if _is_metro(origin_id) and _is_metro(destination_id):
@@ -57,6 +74,7 @@ def _infer_network(
 
 
 def _rel_pattern(network: str) -> str:
+    """Map network mode to the relationship pattern used in Cypher traversals."""
     if network == "metro":
         return "METRO_LINK"
     if network == "rail":
@@ -69,6 +87,7 @@ def _node_label(station_id: str) -> str:
 
 
 def _station_dict(node: Node) -> dict[str, Any]:
+    """Normalize a Neo4j station node to a stable API response payload."""
     labels = list(node.labels)
     network = "metro" if "MetroStation" in labels else "rail"
     lines = node.get("lines")
@@ -83,6 +102,7 @@ def _station_dict(node: Node) -> dict[str, Any]:
 
 
 def _path_legs(path: Path) -> list[dict[str, Any]]:
+    """Convert a Neo4j Path into ordered edge-level leg dictionaries."""
     nodes = list(path.nodes)
     legs: list[dict[str, Any]] = []
     for idx, rel in enumerate(path.relationships):
@@ -99,6 +119,7 @@ def _path_legs(path: Path) -> list[dict[str, Any]]:
 
 
 def _path_time(path: Path) -> int:
+    """Aggregate total path duration from relationship `time_weight` values."""
     return int(
         sum(
             rel.get("time_weight") or 0
@@ -111,7 +132,14 @@ def _stops_fare(
     station_ids: list[str],
     fare_class: str = "standard",
 ) -> float:
-    """Stops-based fare per ticket_types.json (separate ticket per network)."""
+    """
+    Compute stops-based fare from station sequence.
+
+    Fare policy details:
+    - Metro and rail are charged as separate tickets.
+    - Each segment uses `base + (stops * per_stop_rate)`.
+    - Rail supports both `standard` and `first` class pricing.
+    """
     metro_ids = [sid for sid in station_ids if _is_metro(sid)]
     rail_ids = [sid for sid in station_ids if not _is_metro(sid)]
     total = 0.0
@@ -136,6 +164,12 @@ def _find_shortest_path(
     network: str,
     avoid_station_id: Optional[str] = None,
 ) -> Optional[Path]:
+    """
+    Get an unweighted shortest path with optional station exclusion.
+
+    This is the compatibility fallback when weighted procedures are unavailable
+    or when callers explicitly prefer hop-based shortest-path semantics.
+    """
     if not _driver:
         return None
 
@@ -176,6 +210,14 @@ def _find_weighted_path(
     weight_property: str = "time_weight",
     avoid_station_id: Optional[str] = None,
 ) -> Optional[tuple[Path, float]]:
+    """
+    Find the minimum-cost path for a relationship weight property.
+
+    Preferred path engine:
+    - APOC dijkstra for weighted optimization.
+    Fallback:
+    - plain shortest path plus local re-weighting calculation.
+    """
     if not _driver:
         return None
 
@@ -233,6 +275,7 @@ def _route_result(
     *,
     fare_class: str = "standard",
 ) -> dict[str, Any]:
+    """Build the canonical route response structure shared by public APIs."""
     stations = [_station_dict(n) for n in path.nodes]
     station_ids = [s["station_id"] for s in stations]
     return {
@@ -337,6 +380,8 @@ def query_alternative_routes(
 
     Returns:
         List of routes; each route is a list of leg dicts.
+        The first leg includes `total_time_min` so consumers can quickly rank
+        alternatives without re-summing all edges.
     """
     if not _driver:
         return []
@@ -489,7 +534,12 @@ def query_station_connections(station_id: str) -> list[dict]:
 
 
 class TransitQueryManager:
-    """Thin wrapper for agent.py and test_queries.py."""
+    """
+    Backward-compatible facade expected by agent/tests.
+
+    This class intentionally delegates to module-level functions so that callers
+    can keep an object-oriented usage style while query logic stays functional.
+    """
 
     def __init__(self):
         self.driver = _driver
