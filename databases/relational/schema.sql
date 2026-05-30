@@ -102,11 +102,27 @@ CREATE TABLE users (
 -- Stores the hashed password separately from the user profile.
 -- Using Argon2id is enforced by the CHECK constraint so that no other
 -- algorithm can be accidentally written by application code.
--- BYTEA salt is generated per-user so rainbow table attacks are ineffective.
+--
+-- Password hashing algorithm: Argon2id (argon2-cffi library)
+-- Why Argon2id over MD5 / SHA-1 / SHA-256:
+--   MD5 and SHA-* are general-purpose hash functions with no cost factor —
+--   a GPU can compute billions of them per second, making brute-force trivial.
+--   Argon2id is a memory-hard key-derivation function with a tunable cost
+--   factor (time and memory), making each guess orders of magnitude slower.
+-- How salt is managed:
+--   argon2-cffi automatically generates a unique CSPRNG salt per hash and
+--   embeds it inside the hash string (PHC format).  Two users with the same
+--   password will therefore produce completely different hash strings, which
+--   defeats pre-computed rainbow-table lookups.
+--   Because the salt is embedded in password_hash, a separate salt column
+--   is not required; password_salt is kept as nullable for legacy compatibility.
 CREATE TABLE user_credentials (
     user_id         VARCHAR(10) PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
     password_hash   TEXT        NOT NULL,
-    password_salt   BYTEA       NOT NULL,
+    -- password_salt is nullable: argon2-cffi embeds the salt inside the hash
+    -- string (PHC format), so no separate column is needed for new rows.
+    -- The column is retained for schema backward compatibility only.
+    password_salt   BYTEA,
     hash_algorithm  TEXT        NOT NULL DEFAULT 'argon2id',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -115,12 +131,14 @@ CREATE TABLE user_credentials (
 
 -- Stores a single security question per user for self-service password reset.
 -- The answer is hashed with the same Argon2id approach as the password.
+-- secret_answer_salt is nullable for the same reason as user_credentials.password_salt:
+-- argon2-cffi embeds the salt inside secret_answer_hash (PHC format).
 CREATE TABLE user_security_questions (
     security_question_id  VARCHAR(10) PRIMARY KEY,
     user_id               VARCHAR(10) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     secret_question       VARCHAR(255) NOT NULL,
     secret_answer_hash    TEXT         NOT NULL,
-    secret_answer_salt    BYTEA        NOT NULL,
+    secret_answer_salt    BYTEA,
     hash_algorithm        TEXT         NOT NULL DEFAULT 'argon2id',
     created_at            TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at            TIMESTAMPTZ  NOT NULL DEFAULT now()

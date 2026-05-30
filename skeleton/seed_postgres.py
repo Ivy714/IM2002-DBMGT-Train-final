@@ -8,13 +8,17 @@ Run AFTER docker-compose up -d.
 Safe to re-run: uses ON CONFLICT DO NOTHING throughout.
 """
 
-import hashlib
 import json
 import os
 import sys
 
 import psycopg2
 from psycopg2.extras import execute_values
+
+# argon2-cffi: production-grade Argon2id hashing.
+# Each _ph.hash() call generates a fresh CSPRNG salt automatically and embeds
+# it in the returned PHC-format string — no separate salt column required.
+from argon2 import PasswordHasher
 
 # ── resolve paths ─────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +27,17 @@ DATA_DIR = os.path.join(PROJECT_DIR, "train-mock-data")
 
 sys.path.insert(0, PROJECT_DIR)
 from skeleton import config as cfg
+
+_ph = PasswordHasher()
+
+
+def _hash(plaintext: str) -> str:
+    """
+    Hash plaintext with Argon2id via argon2-cffi.
+    The returned PHC string is self-contained and safe to store directly in
+    password_hash / secret_answer_hash — no extra salt column needed.
+    """
+    return _ph.hash(plaintext)
 
 
 def load(filename):
@@ -47,17 +62,6 @@ def insert_many(cur, table, columns, rows):
     sql = f"INSERT INTO {table} ({', '.join(columns)}) VALUES %s ON CONFLICT DO NOTHING"
     execute_values(cur, sql, rows)
     return cur.rowcount
-
-
-def mock_hash(plaintext: str):
-    """
-    Mock hashing for seed data — NOT production argon2id.
-    Returns (hash_hex_str, salt_bytes) matching schema:
-      password_hash TEXT, password_salt BYTEA
-    """
-    salt = os.urandom(16)
-    h = hashlib.sha256(salt + plaintext.encode("utf-8")).hexdigest()
-    return h, salt  # str, bytes
 
 
 # ── layout lookup (built once, used in seed_national_rail_bookings) ───────────
@@ -373,30 +377,29 @@ def seed_users(cur):
         users,
     )
 
-    # Hash each password with SHA-256 + random salt (mock of Argon2id for dev/seed purposes)
-    # Schema stores hash as TEXT and salt as BYTEA — mock_hash() returns (str, bytes) to match
+    # Hash each password with Argon2id.
+    # _hash() returns a self-contained PHC string; no salt column is populated.
     creds = []
     for u in data:
-        h, salt = mock_hash(u["password"])
-        creds.append((u["user_id"], h, salt, "argon2id"))
+        pw_hash = _hash(u["password"])
+        creds.append((u["user_id"], pw_hash, "argon2id"))
     insert_many(
         cur,
         "user_credentials",
-        ["user_id", "password_hash", "password_salt", "hash_algorithm"],
+        ["user_id", "password_hash", "hash_algorithm"],
         creds,
     )
 
-    # One security question row per user; the answer is hashed the same way as the password
+    # Hash the secret answer with Argon2id (lower-cased to enable case-insensitive verification)
     questions = []
     for i, u in enumerate(data, start=1):
-        h, salt = mock_hash(u["secret_answer"])
+        sq_hash = _hash(u["secret_answer"].lower())
         questions.append(
             (
                 f"SQ{i:03d}",
                 u["user_id"],
                 u["secret_question"],
-                h,
-                salt,
+                sq_hash,
                 "argon2id",
             )
         )
@@ -408,7 +411,6 @@ def seed_users(cur):
             "user_id",
             "secret_question",
             "secret_answer_hash",
-            "secret_answer_salt",
             "hash_algorithm",
         ],
         questions,

@@ -11,8 +11,6 @@ TWO ROLES ARE SERVED HERE:
 
 from __future__ import annotations
 
-import hashlib
-import os
 import random
 import string
 from datetime import datetime, timezone
@@ -21,7 +19,22 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
+# argon2-cffi provides a production-grade Argon2id implementation.
+# Install with: pip install argon2-cffi
+# Argon2id is preferred over MD5/SHA-* because it has a configurable memory
+# and time cost factor, making brute-force and GPU attacks orders of magnitude
+# slower.  PasswordHasher() uses secure defaults (time_cost=3, memory_cost=64 MB).
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
+
 from skeleton.config import PG_DSN, VECTOR_TOP_K, VECTOR_SIMILARITY_THRESHOLD
+
+# Single shared PasswordHasher instance — reusing it avoids re-reading config
+# on every call.  argon2-cffi automatically generates a unique CSPRNG salt for
+# each hash() call and embeds it in the PHC-format output string, so two users
+# with identical passwords will always produce completely different stored hashes,
+# defeating pre-computed rainbow-table lookups.
+_ph = PasswordHasher()
 
 
 def _connect():
@@ -41,17 +54,32 @@ def _gen_payment_id() -> str:
     return f"PM-{suffix}"
 
 
-def _mock_hash(plaintext: str):
-    """Mock hash for seed/demo purposes. Returns (hash_hex, salt_bytes)."""
-    salt = os.urandom(16)
-    h = hashlib.sha256(salt + plaintext.encode("utf-8")).hexdigest()
-    return h, salt
+def _hash_password(plaintext: str) -> str:
+    """
+    Hash a plaintext string using Argon2id via argon2-cffi.
+
+    argon2-cffi embeds a unique random salt inside the returned PHC-format
+    string, so no separate salt storage is needed.  The returned string is
+    safe to store directly in user_credentials.password_hash.
+    """
+    return _ph.hash(plaintext)
 
 
-def _mock_verify(plaintext: str, stored_hash: str, stored_salt: bytes) -> bool:
-    """Verify a mock-hashed value."""
-    h = hashlib.sha256(stored_salt + plaintext.encode("utf-8")).hexdigest()
-    return h == stored_hash
+def _verify_password(plaintext: str, stored_hash: str) -> bool:
+    """
+    Verify a plaintext string against a stored Argon2id hash.
+
+    Returns True on success, False if the password is wrong or the hash
+    is malformed.  VerifyMismatchError is caught so callers never see an
+    exception for an incorrect password — only for a genuine system error.
+    """
+    try:
+        return _ph.verify(stored_hash, plaintext)
+    except VerifyMismatchError:
+        return False
+    except Exception:
+        # Any other argon2 error (corrupted hash, wrong format, etc.)
+        return False
 
 
 # ── Example ───────────────────────────────────────────────────────────────────
@@ -89,15 +117,22 @@ def query_national_rail_availability(
             s.last_train_time,
             s.frequency_min,
             -- origin stop info
-            o_stop.stop_order        AS origin_stop_order,
-            o_stop.travel_time_from_origin_min AS origin_travel_time,
+            o_stop.stop_order                      AS origin_stop_order,
+            o_stop.travel_time_from_origin_min     AS origin_travel_time,
             -- destination stop info
-            d_stop.stop_order        AS destination_stop_order,
-            d_stop.travel_time_from_origin_min AS destination_travel_time,
-            -- stops between origin and destination
+            d_stop.stop_order                      AS destination_stop_order,
+            d_stop.travel_time_from_origin_min     AS destination_travel_time,
+            -- number of stops between origin and destination
             (d_stop.stop_order - o_stop.stop_order) AS stops_travelled,
-            -- seat occupancy on travel_date (0 if no date given)
-            COALESCE(booked.booked_seats, 0) AS booked_seats
+            -- total seats on this schedule (NULL for express schedules with no seat layout)
+            seat_counts.total_seats,
+            -- seats already booked (non-cancelled) on the requested travel date
+            COALESCE(booked.booked_seats, 0)       AS booked_seats,
+            -- available_seats = total - booked; NULL when no seat layout exists (express)
+            CASE
+                WHEN seat_counts.total_seats IS NULL THEN NULL
+                ELSE seat_counts.total_seats - COALESCE(booked.booked_seats, 0)
+            END AS available_seats
         FROM national_rail_schedules s
         JOIN national_rail_schedule_stops o_stop
             ON o_stop.schedule_id = s.schedule_id
@@ -107,8 +142,17 @@ def query_national_rail_availability(
             ON d_stop.schedule_id = s.schedule_id
             AND d_stop.station_id = %s
             AND d_stop.is_stopping = TRUE
-        -- origin must come before destination
+        -- origin must appear before destination in stop sequence
         AND o_stop.stop_order < d_stop.stop_order
+        -- count total seats per schedule from the seat inventory tables
+        LEFT JOIN (
+            SELECT sl.schedule_id, COUNT(se.seat_id) AS total_seats
+            FROM seat_layouts sl
+            JOIN coaches co ON co.layout_id = sl.layout_id
+            JOIN seats   se ON se.layout_id = co.layout_id AND se.coach = co.coach
+            GROUP BY sl.schedule_id
+        ) seat_counts ON seat_counts.schedule_id = s.schedule_id
+        -- count non-cancelled bookings for the requested travel date
         LEFT JOIN (
             SELECT b.schedule_id, COUNT(*) AS booked_seats
             FROM bookings b
@@ -265,16 +309,22 @@ def auto_select_adjacent_seats(available_seats: list[dict], count: int) -> list[
 
 
 def query_user_profile(user_email: str) -> Optional[dict]:
-    """Return a user's profile by email."""
+    """
+    Return a user's profile by email, or None if the email is not found.
+    Never raises an exception for an unknown email address.
+    """
     sql = """
         SELECT
             user_id,
             first_name,
             last_name,
-            first_name || ' ' || last_name AS full_name,
+            first_name || ' ' || last_name          AS full_name,
             email,
             phone,
             date_of_birth,
+            -- year_of_birth is derived from date_of_birth so callers do not
+            -- need to parse the full date when only the year is needed
+            EXTRACT(YEAR FROM date_of_birth)::int    AS year_of_birth,
             registered_at,
             is_active
         FROM users
@@ -750,19 +800,22 @@ def register_user(
                 (user_id, first_name, surname, email, registered_at),
             )
 
-            # Hash the password and store credentials separately from the profile
-            pw_hash, pw_salt = _mock_hash(password)
+            # Hash the password with Argon2id before storing.
+            # _hash_password() returns a self-contained PHC string that includes
+            # the algorithm, cost parameters, salt, and hash — no extra columns needed.
+            pw_hash = _hash_password(password)
             cur.execute(
                 """
                 INSERT INTO user_credentials
-                    (user_id, password_hash, password_salt, hash_algorithm)
-                VALUES (%s, %s, %s, 'argon2id')
+                    (user_id, password_hash, hash_algorithm)
+                VALUES (%s, %s, 'argon2id')
             """,
-                (user_id, pw_hash, pw_salt),
+                (user_id, pw_hash),
             )
 
-            # Hash the secret answer and store the security question
-            sq_hash, sq_salt = _mock_hash(secret_answer.lower())
+            # Hash the secret answer the same way; store case-folded so verification
+            # is case-insensitive without storing the raw answer.
+            sq_hash = _hash_password(secret_answer.lower())
             cur.execute("SELECT COUNT(*) FROM user_security_questions")
             sq_count = cur.fetchone()[0]
             sq_id = f"SQ{sq_count + 1:03d}"
@@ -770,10 +823,10 @@ def register_user(
                 """
                 INSERT INTO user_security_questions
                     (security_question_id, user_id, secret_question,
-                     secret_answer_hash, secret_answer_salt, hash_algorithm)
-                VALUES (%s, %s, %s, %s, %s, 'argon2id')
+                     secret_answer_hash, hash_algorithm)
+                VALUES (%s, %s, %s, %s, 'argon2id')
             """,
-                (sq_id, user_id, secret_question, sq_hash, sq_salt),
+                (sq_id, user_id, secret_question, sq_hash),
             )
 
             conn.commit()
@@ -798,8 +851,9 @@ def login_user(email: str, password: str) -> Optional[dict]:
             u.phone,
             u.date_of_birth,
             u.is_active,
-            uc.password_hash,
-            uc.password_salt
+            uc.password_hash
+            -- password_salt is not selected: argon2-cffi embeds the salt
+            -- inside password_hash (PHC format) so no separate column is needed
         FROM users u
         JOIN user_credentials uc ON uc.user_id = u.user_id
         WHERE u.email = %s
@@ -812,9 +866,7 @@ def login_user(email: str, password: str) -> Optional[dict]:
                 return None
             if not row["is_active"]:
                 return None
-            if not _mock_verify(
-                password, row["password_hash"], bytes(row["password_salt"])
-            ):
+            if not _verify_password(password, row["password_hash"]):
                 return None
             # Strip sensitive hash/salt fields before returning to the caller
             return {
@@ -846,9 +898,13 @@ def get_user_secret_question(email: str) -> Optional[str]:
 
 
 def verify_secret_answer(email: str, answer: str) -> bool:
-    """Return True if the answer matches the stored secret answer (case-insensitive)."""
+    """
+    Return True if the provided answer matches the stored secret answer.
+    Comparison is case-insensitive: the answer is lower-cased before
+    verifying against the stored Argon2id hash.
+    """
     sql = """
-        SELECT usq.secret_answer_hash, usq.secret_answer_salt
+        SELECT usq.secret_answer_hash
         FROM user_security_questions usq
         JOIN users u ON u.user_id = usq.user_id
         WHERE u.email = %s
@@ -860,12 +916,16 @@ def verify_secret_answer(email: str, answer: str) -> bool:
             row = cur.fetchone()
             if not row:
                 return False
-            stored_hash, stored_salt = row
-            return _mock_verify(answer.lower(), stored_hash, bytes(stored_salt))
+            stored_hash = row[0]
+            # Lower-case the candidate answer to match the case-folding applied at registration
+            return _verify_password(answer.lower(), stored_hash)
 
 
 def update_password(email: str, new_password: str) -> bool:
-    """Update the password for a user. Returns True if updated."""
+    """
+    Hash new_password with Argon2id and store it in user_credentials.
+    Returns True if a row was updated, False if the email was not found.
+    """
     conn = psycopg2.connect(PG_DSN)
     conn.autocommit = False
     try:
@@ -875,16 +935,16 @@ def update_password(email: str, new_password: str) -> bool:
             if not row:
                 return False
             user_id = row[0]
-            pw_hash, pw_salt = _mock_hash(new_password)
+            # Re-hash the new password with a fresh Argon2id salt
+            pw_hash = _hash_password(new_password)
             cur.execute(
                 """
                 UPDATE user_credentials
                 SET password_hash = %s,
-                    password_salt = %s,
                     updated_at    = now()
                 WHERE user_id = %s
             """,
-                (pw_hash, pw_salt, user_id),
+                (pw_hash, user_id),
             )
             conn.commit()
             return cur.rowcount > 0
@@ -943,9 +1003,83 @@ def store_policy_document(
 
 
 # ── ADDED QUERIES ─────────────────────────────────────
+
+
 def query_station_info(station_id: str) -> Optional[dict]:
-    """Return basic station info and interchange details for a given station_id."""
+    """
+    Return basic station info and interchange details for a given station_id.
+
+    Handles both metro stations (MS* prefix) and national rail stations (NR* prefix)
+    by checking which table the ID belongs to and querying accordingly.
+
+    Returns a dict with station details, or None if the ID is not found in either table.
+    """
+    if station_id.startswith("MS"):
+        # Metro station: join with metro_station_lines to collect all served lines
+        sql = """
+            SELECT
+                ms.station_id,
+                ms.name,
+                'metro'                              AS network,
+                ms.is_interchange_metro,
+                ms.is_interchange_national_rail,
+                ms.interchange_national_rail_station_id,
+                ARRAY_AGG(msl.line ORDER BY msl.line) AS lines
+            FROM metro_stations ms
+            LEFT JOIN metro_station_lines msl ON msl.station_id = ms.station_id
+            WHERE ms.station_id = %s
+            GROUP BY ms.station_id, ms.name,
+                     ms.is_interchange_metro, ms.is_interchange_national_rail,
+                     ms.interchange_national_rail_station_id
+        """
+    else:
+        # National rail station: join with national_rail_station_lines
+        sql = """
+            SELECT
+                nrs.station_id,
+                nrs.name,
+                'national_rail'                      AS network,
+                nrs.is_interchange_national_rail,
+                nrs.is_interchange_metro,
+                nrs.interchange_metro_station_id,
+                ARRAY_AGG(nrsl.line ORDER BY nrsl.line) AS lines
+            FROM national_rail_stations nrs
+            LEFT JOIN national_rail_station_lines nrsl ON nrsl.station_id = nrs.station_id
+            WHERE nrs.station_id = %s
+            GROUP BY nrs.station_id, nrs.name,
+                     nrs.is_interchange_national_rail, nrs.is_interchange_metro,
+                     nrs.interchange_metro_station_id
+        """
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (station_id,))
+            row = cur.fetchone()
+            return dict(row) if row else None
 
 
 def query_user_feedback(user_email: str) -> list[dict]:
-    """Return all feedback records submitted by a given user."""
+    """
+    Return all feedback records submitted by a given user, identified by email.
+
+    Each record includes the journey ID, rating, optional comment, and submission
+    timestamp.  Returns an empty list (not None) if the user has no feedback or
+    the email is not found.
+    """
+    sql = """
+        SELECT
+            f.feedback_id,
+            f.journey_id,
+            j.network,
+            f.rating,
+            f.comment,
+            f.submitted_at
+        FROM feedback f
+        JOIN journeys j  ON j.journey_id = f.journey_id
+        JOIN users    u  ON u.user_id     = f.user_id
+        WHERE u.email = %s
+        ORDER BY f.submitted_at DESC
+    """
+    with _connect() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (user_email,))
+            return [dict(row) for row in cur.fetchall()]
